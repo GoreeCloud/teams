@@ -317,13 +317,20 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     if (beforeId && (!before || before.channel_id !== ch.id || before.parent_id !== parentId)) {
       return error(reply, 404, "Message cursor not found");
     }
-    const cursorTime = before?.created_at || null;
-    return db.prepare(`SELECT * FROM messages WHERE channel_id=? AND
-      ((? IS NULL AND parent_id IS NULL) OR parent_id=?)
-      AND (? IS NULL OR created_at < ? OR (created_at = ? AND id < ?))
-      ORDER BY created_at DESC,id DESC LIMIT ?`)
-      .all(ch.id, parentId, parentId, cursorTime, cursorTime, cursorTime, before?.id || null, limit)
-      .reverse().map(publicMessage);
+    // Fixed SQL fragments selected only by validated channel/thread state;
+    // every variable, including the cursor, stays parameterized. The composite
+    // (channel_id, parent_id, created_at, id) index supports keyset paging.
+    const params = [ch.id];
+    let query = "SELECT * FROM messages WHERE channel_id=? AND ";
+    if (parentId) { query += "parent_id=?"; params.push(parentId); }
+    else query += "parent_id IS NULL";
+    if (before) {
+      query += " AND (created_at < ? OR (created_at = ? AND id < ?))";
+      params.push(before.created_at, before.created_at, before.id);
+    }
+    query += " ORDER BY created_at DESC, id DESC LIMIT ?";
+    params.push(limit);
+    return db.prepare(query).all(...params).reverse().map(publicMessage);
   });
   app.post("/api/channels/:channelId/messages", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);

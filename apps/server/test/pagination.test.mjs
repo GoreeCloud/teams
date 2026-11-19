@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "../src/server.mjs";
+import { openDatabase } from "../src/db.mjs";
 
 const call = (app, method, url, accessToken, payload) =>
   app.inject({ method, url, payload,
@@ -73,4 +74,22 @@ test("cursor history is complete, stable, bounded and isolated by channel and th
     "root cannot be used as a reply cursor");
   assert.equal((await call(app, "GET", "/api/channels/"+general.id+"/messages?before="+threadReplies[0].id, auth)).statusCode, 404,
     "reply cannot be used as a root cursor");
+});
+
+
+test("history queries use a scoped composite index", () => {
+  const db = openDatabase(":memory:");
+  try {
+    for (const parent of ["IS NULL", "= ?"]) {
+      const statement = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM messages WHERE channel_id=? AND parent_id "
+        + parent + " ORDER BY created_at DESC,id DESC LIMIT ?");
+      const params = parent === "IS NULL" ? ["synthetic-channel", 50]
+        : ["synthetic-channel", "synthetic-thread", 50];
+      const plan = statement.all(...params);
+      assert.ok(plan.some(row => row.detail.includes("messages_channel_parent_history")),
+        "expected channel/thread pagination index: " + JSON.stringify(plan));
+    }
+  } finally {
+    db.close();
+  }
 });
