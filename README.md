@@ -12,7 +12,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Single-owner first-run setup, local user login, single-use 24-hour invites
 - Workspaces, public/private channels and channel access enforcement
 - Workspace member directory for teammate selection and admin-controlled private-channel invitations
-- One-to-one direct messages with workspace membership and participant-only access
+- One-to-one and 3–30-person private group conversations, with participant-only access and fixed group membership
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Permission-checked, cursor-paginated message and reply history in all clients
 - Workspace-scoped search, authenticated WebSocket event fanout
@@ -21,7 +21,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - SQLite persistence with WAL, Argon2id password hashes and opaque sessions
 - Basic API tests, Flutter widget test, Linux desktop and Android APK CI jobs with temporary debug artifacts
 
-**Not yet supported:** file attachments, group DMs, voice/video calls, advanced
+**Not yet supported:** file attachments, editing group membership, voice/video calls, advanced
 permissions, E2EE, complete mobile notifications, offline synchronization,
 enterprise SSO/MFA, federation, production readiness and installation/device
 acceptance. Native login tokens intentionally do not persist across restarts.

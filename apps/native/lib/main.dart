@@ -516,6 +516,7 @@ class _TeamsHomeState extends State<TeamsHome> {
   bool get canAddCurrentChannelMember =>
       canManageCurrentWorkspace &&
       channelKind != 'dm' &&
+      channelKind != 'group_dm' &&
       channels.any((ch) => ch['id'] == channelId && ch['isPrivate'] == 1);
 
   Future<String?> pickTeammate(String title, String explanation) async {
@@ -587,6 +588,101 @@ class _TeamsHomeState extends State<TeamsHome> {
         dms = [dm, ...dms.where((item) => item['id'] != dm['id'])];
       });
       chooseChannel(dm);
+    });
+  }
+
+  Future<void> startGroupConversation() async {
+    final currentWorkspace = workspaceId;
+    if (currentWorkspace == null) return;
+    final available = members.where((m) => m['id'] != currentUserId).toList();
+    if (available.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Invite at least two teammates first.')));
+      return;
+    }
+    final titleController = TextEditingController();
+    final selected = <String>{};
+    final details = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('New group conversation'),
+          content: SizedBox(
+            width: 400,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text(
+                  'Choose at least two teammates. Group membership is fixed.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: titleController,
+                maxLength: 80,
+                onChanged: (_) => setDialogState(() {}),
+                decoration: const InputDecoration(labelText: 'Group name'),
+              ),
+              const SizedBox(height: 10),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Participants',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              SizedBox(
+                height: 240,
+                child: ListView(
+                  children: available.map((person) {
+                    final username = person['username'] as String;
+                    return CheckboxListTile(
+                      dense: true,
+                      title: Text(person['displayName'] as String),
+                      subtitle: Text('@$username'),
+                      value: selected.contains(username),
+                      onChanged: (checked) => setDialogState(() {
+                        if (checked == true) {
+                          selected.add(username);
+                        } else {
+                          selected.remove(username);
+                        }
+                      }),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: titleController.text.trim().isEmpty ||
+                      selected.length < 2 ||
+                      selected.length > 29
+                  ? null
+                  : () => Navigator.pop(dialogContext, {
+                        'title': titleController.text.trim(),
+                        'usernames': selected.toList(),
+                      }),
+              child: const Text('Create private group'),
+            ),
+          ],
+        ),
+      ),
+    );
+    titleController.dispose();
+    if (details == null || !mounted || currentWorkspace != workspaceId) return;
+    await guarded(() async {
+      final response = await api!.request(
+          '/workspaces/$currentWorkspace/group-dms',
+          method: 'POST',
+          data: details) as Map;
+      if (!mounted || currentWorkspace != workspaceId) return;
+      final conversation = Map<String, dynamic>.from(response);
+      setState(() {
+        dms = [
+          conversation,
+          ...dms.where((dm) => dm['id'] != conversation['id'])
+        ];
+      });
+      chooseChannel(conversation);
     });
   }
 
@@ -910,13 +1006,17 @@ class _TeamsHomeState extends State<TeamsHome> {
               padding: const EdgeInsets.fromLTRB(20, 10, 12, 0),
               child: Row(children: [
                 const Expanded(
-                    child: Text('DIRECT MESSAGES',
+                    child: Text('CONVERSATIONS',
                         style: TextStyle(
                             fontSize: 12, fontWeight: FontWeight.bold))),
                 IconButton(
                     tooltip: 'New direct message',
                     onPressed: startDirectMessage,
                     icon: const Icon(Icons.add_comment_outlined)),
+                IconButton(
+                    tooltip: 'New private group conversation',
+                    onPressed: startGroupConversation,
+                    icon: const Icon(Icons.group_add_outlined)),
               ])),
           if (dms.isEmpty)
             const Padding(
@@ -933,7 +1033,11 @@ class _TeamsHomeState extends State<TeamsHome> {
                   selected: dm['id'] == channelId,
                   selectedTileColor:
                       Theme.of(context).colorScheme.secondaryContainer,
-                  leading: const Icon(Icons.chat_bubble_outline, size: 20),
+                  leading: Icon(
+                      dm['kind'] == 'group_dm'
+                          ? Icons.group_outlined
+                          : Icons.chat_bubble_outline,
+                      size: 20),
                   title: Text((dm['peerName'] ?? dm['name']) as String,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   onTap: () => chooseChannel(dm),
@@ -1094,7 +1198,8 @@ class _TeamsHomeState extends State<TeamsHome> {
                           null,
                       decoration: InputDecoration(
                           labelText: threadId == null
-                              ? (channelKind == 'dm'
+                              ? (channelKind == 'dm' ||
+                                      channelKind == 'group_dm'
                                   ? 'Message $channelName'
                                   : 'Message #$channelName')
                               : 'Reply in thread',
@@ -1117,8 +1222,8 @@ class _TeamsHomeState extends State<TeamsHome> {
           : AppBar(
               title: Text(threadId != null
                   ? 'Thread'
-                  : channelKind == 'dm'
-                      ? (channelName ?? 'Direct message')
+                  : channelKind == 'dm' || channelKind == 'group_dm'
+                      ? (channelName ?? 'Conversation')
                       : '#${channelName ?? 'Teams'}'),
               actions: [
                   if (canAddCurrentChannelMember)
