@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bell, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
+import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
 import { api, connectEvents, type Channel, type Event, type Message, type User, type Workspace } from "./api";
 
 const shortTime = (value: string) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -67,7 +67,7 @@ function MessageRow({ message, me, onReply, onReaction, onEdit, onDelete }: {
     </div>}
   </article>;
 }
-function Composer({ channelName, onSend, parent }: { channelName: string; parent?: boolean; onSend: (value: string) => Promise<void> }) {
+function Composer({ channelName, onSend, parent, direct }: { channelName: string; parent?: boolean; direct?: boolean; onSend: (value: string) => Promise<void> }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   async function send() {
@@ -75,7 +75,7 @@ function Composer({ channelName, onSend, parent }: { channelName: string; parent
     try { await onSend(text.trim()); setText(""); } finally { setBusy(false); }
   }
   return <div className="composer"><textarea aria-label={parent ? "Write a thread reply" : "Write a message"} rows={2} value={text} maxLength={4000}
-    placeholder={parent ? "Reply in thread…" : "Message #" + channelName}
+    placeholder={parent ? "Reply in thread…" : direct ? "Message " + channelName : "Message #" + channelName}
     onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}/>
     <div className="composer-footer"><span>↵ to send · Shift + ↵ for a new line</span><button aria-label="Send message" onClick={() => void send()} disabled={!text.trim() || busy}><Send size={18}/></button></div>
   </div>;
@@ -87,6 +87,7 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspace, setWorkspace] = useState<Workspace|null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [dms, setDms] = useState<Channel[]>([]);
   const [channel, setChannel] = useState<Channel|null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [thread, setThread] = useState<Message|null>(null);
@@ -97,6 +98,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showNewDm, setShowNewDm] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const scrollAnchor = useRef<HTMLDivElement>(null);
   const refreshSession = useCallback(async () => {
@@ -111,10 +113,17 @@ export default function App() {
   }, [user]);
   useEffect(() => {
     if (!workspace) return;
-    setChannel(null); setChannels([]); setSearchResults(null);
-    void api<Channel[]>("/workspaces/" + workspace.id + "/channels").then(data => {
-      setChannels(data); setChannel(data.find(x => x.name === "general") || data[0] || null);
-    }).catch(err => setNotice(errorMessage(err)));
+    let active = true;
+    setChannel(null); setChannels([]); setDms([]); setSearchResults(null);
+    void Promise.all([
+      api<Channel[]>("/workspaces/" + workspace.id + "/channels"),
+      api<Channel[]>("/workspaces/" + workspace.id + "/dms")
+    ]).then(([channelData, dmData]) => {
+      if (!active) return;
+      setChannels(channelData); setDms(dmData);
+      setChannel(channelData.find(x => x.name === "general") || channelData[0] || dmData[0] || null);
+    }).catch(err => { if (active) setNotice(errorMessage(err)); });
+    return () => { active = false; };
   }, [workspace]);
   const refreshMessages = useCallback(async () => {
     if (!channel) return;
@@ -130,6 +139,11 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     return connectEvents((event: Event) => {
+      if (event.type === "dm.created" && event.conversation?.kind === "dm" && event.workspaceId === workspace?.id) {
+        const conversation = event.conversation;
+        setDms(previous => [conversation, ...previous.filter(dm => dm.id !== conversation.id)]);
+        return;
+      }
       if (!event.message || event.channelId !== channel?.id) return;
       const m = event.message;
       const apply = (list: Message[]) => event.type === "message.created"
@@ -139,7 +153,7 @@ export default function App() {
       else setMessages(prev => apply(prev));
       if (thread?.id === m.id) setThread(m);
     });
-  }, [user, channel?.id, thread?.id]);
+  }, [user, workspace?.id, channel?.id, thread?.id]);
   const send = async (body: string, parentId?: string) => {
     if (!channel) return;
     try {
@@ -179,6 +193,16 @@ export default function App() {
       setChannels(prev => [...prev, ch].sort((a, b) => a.name.localeCompare(b.name))); setChannel(ch); setShowNewChannel(false);
     } catch (err) { setNotice(errorMessage(err)); }
   };
+  const newDirectMessage = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); if (!workspace) return;
+    const username = String(new FormData(e.currentTarget).get("username") || "").trim();
+    try {
+      const conversation = await api<Channel>("/workspaces/" + workspace.id + "/dms", "POST", { username });
+      setDms(previous => [conversation, ...previous.filter(dm => dm.id !== conversation.id)]);
+      setChannel(conversation); setThread(null); setSearchResults(null);
+      setShowNewDm(false); setSidebarOpen(false);
+    } catch (err) { setNotice(errorMessage(err)); }
+  };
   const invite = async () => {
     if (!workspace) return;
     try { const r = await api<{invite:string}>("/workspaces/" + workspace.id + "/invites", "POST", { role: "member" }); setInviteCode(r.invite); }
@@ -202,6 +226,12 @@ export default function App() {
         <div className="section-head"><span>Channels</span>{workspace && workspace.role !== "member" && <button aria-label="Create channel" onClick={() => setShowNewChannel(true)}><Plus size={18}/></button>}</div>
         <div className="channel-list">{channels.map(ch => <button key={ch.id} className={"channel-link " + (channel?.id === ch.id ? "selected" : "")}
           onClick={() => { setChannel(ch); setSearchResults(null); setSidebarOpen(false); }}>{ch.isPrivate ? <LockKeyhole size={17}/> : <Hash size={18}/>} <span>{ch.name}</span></button>)}</div>
+        <div className="section-head dm-section"><span>Direct messages</span><button aria-label="Start direct message" onClick={() => setShowNewDm(true)}><Plus size={18}/></button></div>
+        <div className="channel-list">{dms.map(dm => <button key={dm.id} className={"channel-link " + (channel?.id === dm.id ? "selected" : "")}
+          onClick={() => { setChannel(dm); setThread(null); setSearchResults(null); setSidebarOpen(false); }}>
+          <MessageCircle size={17}/> <span>{dm.peerName || dm.name}</span></button>)}
+          {dms.length === 0 && <p className="dm-empty">Start a private conversation with a teammate.</p>}
+        </div>
         <div className="sidebar-label second-label">WORKSPACE TOOLS</div>
         {workspace?.role !== "member" && <button className="tool-link" onClick={() => { setShowInvite(true); setInviteCode(""); }}><UserPlus size={18}/> Invite a teammate</button>}
       </div>
@@ -218,14 +248,14 @@ export default function App() {
       {searchResults ? <div className="content"><header className="channel-header"><button className="back-button" onClick={() => setSearchResults(null)}><ArrowLeft size={20}/> Back to channel</button><h1>Search results</h1><p>{searchResults.length} messages found for “{search}”</p></header>
         <div className="message-scroll">{searchResults.length ? searchResults.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>) : <p className="empty">Nothing matched your search.</p>}</div></div>
       : channel ? <div className="content">
-        <header className="channel-header"><div className="channel-heading"><div className="channel-identity"><div className="channel-heading-icon">{channel.isPrivate ? <LockKeyhole size={24}/> : <Hash size={26}/>}</div>
-          <div><h1>{channel.name}</h1><p>{channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members"><Users size={18}/><span>Team space</span></div></div></header>
+        <header className="channel-header"><div className="channel-heading"><div className="channel-identity"><div className="channel-heading-icon">{channel.kind === "dm" ? <MessageCircle size={24}/> : channel.isPrivate ? <LockKeyhole size={24}/> : <Hash size={26}/>}</div>
+          <div><h1>{channel.kind === "dm" ? channel.peerName || channel.name : channel.name}</h1><p>{channel.kind === "dm" ? "Private conversation · visible only to participants" : channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members"><Users size={18}/><span>Team space</span></div></div></header>
         <div className="message-scroll" role="log" aria-label={"Messages in " + channel.name}>
-          <div className="channel-intro"><span className="intro-icon"><Hash size={26}/></span><h2>Welcome to #{channel.name}</h2><p>This is the beginning of the conversation. Share updates, ask questions, and keep moving forward together.</p></div>
+          <div className="channel-intro"><span className="intro-icon">{channel.kind === "dm" ? <MessageCircle size={26}/> : <Hash size={26}/>}</span><h2>{channel.kind === "dm" ? "Conversation with " + (channel.peerName || channel.name) : "Welcome to #" + channel.name}</h2><p>{channel.kind === "dm" ? "Only you and this teammate can see this conversation. Messages are stored on your Teams server." : "This is the beginning of the conversation. Share updates, ask questions, and keep moving forward together."}</p></div>
           {messages.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>)}
           <div ref={scrollAnchor} />
         </div>
-        <div className="composer-wrap"><Composer key={channel.id} channelName={channel.name} onSend={body => send(body)}/></div>
+        <div className="composer-wrap"><Composer key={channel.id} channelName={channel.peerName || channel.name} direct={channel.kind === "dm"} onSend={body => send(body)}/></div>
       </div> : <div className="empty-workspace"><Sparkles size={35}/><h2>Choose a channel</h2><p>Your conversations will appear here.</p></div>}
     </main>
     {thread && <aside className="thread-panel" aria-label="Thread">
@@ -234,6 +264,15 @@ export default function App() {
         <div className="replies-caption">{replies.length} {replies.length === 1 ? "reply" : "replies"}</div>
         {replies.map(m => <MessageRow key={m.id} message={m} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove}/>)}
       </div><div className="composer-wrap"><Composer key={thread.id} channelName={channel?.name || ""} parent onSend={body => send(body, thread.id)}/></div></aside>}
+    {showNewDm && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowNewDm(false); }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Start direct message">
+        <header><h2>New direct message</h2><button aria-label="Close dialog" onClick={() => setShowNewDm(false)}><X size={20}/></button></header>
+        <form onSubmit={newDirectMessage}><p className="muted">Choose an existing member of your workspace. Only the two of you can access this conversation.</p>
+          <label>Teammate username<input name="username" required minLength={3} maxLength={32} pattern="[a-zA-Z0-9_.-]{3,32}" autoFocus placeholder="teammate" autoComplete="off"/></label>
+          <button className="primary-button" type="submit">Start conversation</button>
+        </form>
+      </div>
+    </div>}
     {(showNewChannel || showInvite) && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) { setShowNewChannel(false); setShowInvite(false); } }}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={showNewChannel ? "Create channel" : "Invite teammate"}><header><h2>{showNewChannel ? "Create a channel" : "Invite a teammate"}</h2><button onClick={() => { setShowNewChannel(false); setShowInvite(false); }} aria-label="Close dialog"><X size={20}/></button></header>
         {showNewChannel ? <form onSubmit={newChannel}><p className="muted">Give your team a place to keep an ongoing conversation.</p><label>Channel name<input name="name" required pattern="[a-zA-Z0-9_-]{2,40}" placeholder="design-updates" /></label><label className="checkbox"><input name="private" type="checkbox"/> Private channel (invite members separately)</label><button className="primary-button">Create channel</button></form>
