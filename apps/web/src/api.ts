@@ -5,7 +5,7 @@ export type SessionInfo = { id:string; createdAt:number|null; expiresAt:number; 
 export type UnreadInfo = { channelId:string; count:number };
 export type Channel = { id: string; name: string; workspaceId: string; isPrivate: number; kind?: "channel"|"dm"|"group_dm"; peerName?: string; peerId?: string; memberCount?: number };
 export type Reaction = { emoji: string; count: number };
-export type Message = { id: string; channelId: string; authorId: string; author: string; body: string; parentId: string|null; createdAt: string; editedAt: string|null; deletedAt: string|null; reactions: Reaction[] };
+export type Message = { id: string; channelId: string; authorId: string; author: string; body: string; parentId: string|null; createdAt: string; editedAt: string|null; deletedAt: string|null; reactions: Reaction[]; pinnedBy: string|null; pinnedAt: string|null };
 export type Event = { type: string; channelId?: string; channel?: Channel; message?: Message; workspaceId?: string; conversation?: Channel };
 // Recovery always starts with a contiguous recent page, discarding stale
 // paginated pages. Keep only WebSocket events newer than that server response

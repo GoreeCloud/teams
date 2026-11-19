@@ -10,6 +10,11 @@
   event is checked against workspace membership and (for private channels)
   explicit channel membership. Private-channel member removal immediately blocks message/history access, search and event fanout; only existing channel admins/owners may remove members, not themselves or the workspace owner. The authenticated workspace member directory exposes only user IDs, usernames, display names and roles to other workspace members. One-to-one conversations have immutable two-member membership; private group conversations have fixed 3–30-person membership, and neither can be expanded through channel-management APIs. Only admins/owners may invite or add channels;
   only authors edit their messages.
+- **Pinned content**: Pin lists and mutations use the same channel/private
+  conversation authorization as messages. Any authorized participant can pin;
+  the pinner or a workspace administrator/owner with access can unpin.
+  Soft-deleting messages removes corresponding pins; pinned text is not copied
+  into a separate public index. A 50-pin limit restricts unbounded accumulation.
 - **Unread/read privacy**: The server stores only the account, channel and
   last-read root-message timestamp/ID in SQLite. Read markers are monotonic,
   channel-authorized and visible to the account's own active sessions only;

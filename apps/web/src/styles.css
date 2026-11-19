@@ -194,6 +194,16 @@ h1,h2,h3,p { margin-top:0 } .muted { color:var(--text-soft); line-height:1.6 } .
 .load-older { display:block; margin:10px auto 24px; min-height:40px; padding:8px 18px; border:1px solid var(--outline); border-radius:12px; background:var(--surface-tonal); color:var(--text); font-weight:650; font-size:.8rem }
 .load-older:hover:not(:disabled) { background:var(--brand-subtle) }
 
+.pinned-indicator { display:inline-flex; align-items:center; gap:3px; color:var(--brand); font-size:.7rem; font-weight:700 }
+.channel-header button.view-pins { display:inline-flex; align-items:center; gap:7px; padding:8px 11px; min-height:40px; border:1px solid var(--outline); color:var(--text); background:var(--surface-tonal); border-radius:12px; font-size:.8rem }
+.channel-header button.view-pins:hover { background:var(--brand-subtle) }
+.pins-list { display:grid; gap:12px; max-height:360px; overflow:auto; margin:18px 0 }
+.pinned-entry { display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid var(--outline); padding:12px; border-radius:12px }
+.pinned-entry div { min-width:0; flex:1; overflow-wrap:anywhere }
+.pinned-entry strong { font-size:.82rem }
+.pinned-entry p { margin:6px 0 0; white-space:pre-wrap; font-size:.86rem; line-height:1.5 }
+.pinned-entry button { background:var(--surface-tonal); color:var(--text); border:1px solid var(--outline); min-height:40px; min-width:40px; border-radius:10px; cursor:pointer }
+
 .session-list { display:grid; gap:10px; max-height:310px; overflow:auto; margin:18px 0 }
 .session-item { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px; border:1px solid var(--outline); border-radius:14px }
 .session-item strong { font-size:.88rem }

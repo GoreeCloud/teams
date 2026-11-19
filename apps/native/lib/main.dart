@@ -1209,6 +1209,106 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> togglePin(Map<String, dynamic> message) => guarded(() async {
+        final pinned = message['pinnedBy'] != null;
+        final result = await api!.request('/messages/${message['id']}/pin',
+            method: pinned ? 'DELETE' : 'POST') as Map;
+        applyMessage(result);
+      });
+
+  Future<void> viewPinnedMessages() async {
+    final currentChannel = channelId;
+    if (currentChannel == null) return;
+    final List<Map<String, dynamic>> pinned;
+    try {
+      pinned = (await api!.request('/channels/$currentChannel/pins') as List)
+          .cast<Map<String, dynamic>>();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+      return;
+    }
+    if (!mounted || currentChannel != channelId) return;
+    bool removing = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> unpin(Map<String, dynamic> item) async {
+            if (removing) return;
+            setDialogState(() => removing = true);
+            try {
+              final changed = await api!.request('/messages/${item['id']}/pin',
+                  method: 'DELETE') as Map;
+              if (!mounted ||
+                  !dialogContext.mounted ||
+                  channelId != currentChannel) {
+                return;
+              }
+              applyMessage(changed);
+              setDialogState(() {
+                pinned.removeWhere((entry) => entry['id'] == item['id']);
+                removing = false;
+              });
+            } catch (e) {
+              if (dialogContext.mounted) {
+                setDialogState(() => removing = false);
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(e.toString())));
+              }
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Pinned messages'),
+            content: SizedBox(
+              width: 440,
+              height: 380,
+              child: Column(children: [
+                const Text(
+                    'Only members may view pins. Up to 50 messages may be pinned.'),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: pinned.isEmpty
+                      ? const Center(child: Text('No pinned messages yet.'))
+                      : ListView(
+                          children: pinned.map((item) {
+                            final canUnpin =
+                                item['pinnedBy'] == currentUserId ||
+                                    canManageCurrentWorkspace;
+                            return ListTile(
+                              title:
+                                  Text(item['author'] as String? ?? 'Teammate'),
+                              subtitle: Text(item['body'] as String? ?? '',
+                                  maxLines: 4, overflow: TextOverflow.ellipsis),
+                              trailing: canUnpin
+                                  ? IconButton(
+                                      tooltip: 'Unpin message',
+                                      onPressed:
+                                          removing ? null : () => unpin(item),
+                                      icon: const Icon(Icons.push_pin_outlined))
+                                  : null,
+                            );
+                          }).toList(),
+                        ),
+                ),
+                if (removing) const LinearProgressIndicator(),
+              ]),
+            ),
+            actions: [
+              TextButton(
+                  onPressed:
+                      removing ? null : () => Navigator.pop(dialogContext),
+                  child: const Text('Close'))
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> searchMessages() async {
     final controller = TextEditingController();
     final query = await showDialog<String>(
@@ -1536,6 +1636,9 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                                 if (action == 'react') reactTo(msg);
                                 if (action == 'edit') editMessage(msg);
                                 if (action == 'delete') deleteMessage(msg);
+                                if (action == 'pin' || action == 'unpin') {
+                                  togglePin(msg);
+                                }
                               },
                               itemBuilder: (context) => [
                                 if (threadId == null)
@@ -1548,6 +1651,16 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                                 if (mine && !deleted)
                                   const PopupMenuItem(
                                       value: 'edit', child: Text('Edit')),
+                                if (!deleted && msg['pinnedBy'] == null)
+                                  const PopupMenuItem(
+                                      value: 'pin', child: Text('Pin message')),
+                                if (!deleted &&
+                                    msg['pinnedBy'] != null &&
+                                    (msg['pinnedBy'] == currentUserId ||
+                                        canManageCurrentWorkspace))
+                                  const PopupMenuItem(
+                                      value: 'unpin',
+                                      child: Text('Unpin message')),
                                 if (mine && !deleted)
                                   const PopupMenuItem(
                                       value: 'delete', child: Text('Delete')),
@@ -1561,6 +1674,20 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                               style: deleted
                                   ? const TextStyle(fontStyle: FontStyle.italic)
                                   : null),
+                          if (msg['pinnedBy'] != null)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.push_pin, size: 14),
+                                    SizedBox(width: 4),
+                                    Text('Pinned',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600)),
+                                  ]),
+                            ),
                           if (reactions.isNotEmpty)
                             Wrap(
                                 spacing: 6,
@@ -1665,6 +1792,10 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                         onPressed: manageChannelMembers,
                         tooltip: 'Manage private channel members',
                         icon: const Icon(Icons.person_add_alt_outlined)),
+                  IconButton(
+                      onPressed: channelId == null ? null : viewPinnedMessages,
+                      tooltip: 'Pinned messages',
+                      icon: const Icon(Icons.push_pin_outlined)),
                   IconButton(
                       onPressed: searchMessages,
                       tooltip: 'Search messages',
