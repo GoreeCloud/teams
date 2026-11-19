@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
-import { api, connectEvents, type Channel, type Event, type Member, type Message, type User, type Workspace } from "./api";
+import { api, connectEvents, type Channel, type Event, type Member, type Message, type SessionInfo, type User, type Workspace } from "./api";
 
 const shortTime = (value: string) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const errorMessage = (err: unknown) => err instanceof Error ? err.message : "Something went wrong";
@@ -106,6 +106,9 @@ export default function App() {
   const [showNewDm, setShowNewDm] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [showSessions, setShowSessions] = useState(false);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [sessionBusy, setSessionBusy] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const scrollAnchor = useRef<HTMLDivElement>(null);
   const scrollViewport = useRef<HTMLDivElement>(null);
@@ -308,7 +311,33 @@ export default function App() {
     try { const r = await api<{invite:string}>("/workspaces/" + workspace.id + "/invites", "POST", { role: "member" }); setInviteCode(r.invite); }
     catch (err) { setNotice(errorMessage(err)); }
   };
-  const logout = async () => { try { await api("/auth/logout", "POST"); } finally { setUser(null); setWorkspace(null); setWorkspaces([]); setChannel(null); } };
+  const openSessions = async () => {
+    setShowSessions(true); setSessionBusy(true);
+    try { setSessions(await api<SessionInfo[]>("/auth/sessions")); }
+    catch (err) { setNotice(errorMessage(err)); }
+    finally { setSessionBusy(false); }
+  };
+  const revokeSession = async (session: SessionInfo) => {
+    if (!window.confirm(session.current ? "Sign out this session now?" : "Sign out the selected session?")) return;
+    setSessionBusy(true);
+    try {
+      const result = await api<{ok:boolean;current:boolean}>("/auth/sessions/" + session.id, "DELETE");
+      if (result.current) {
+        setShowSessions(false); setUser(null); setWorkspace(null); setWorkspaces([]); setChannel(null);
+      } else setSessions(previous => previous.filter(item => item.id !== session.id));
+    } catch (err) { setNotice(errorMessage(err)); }
+    finally { setSessionBusy(false); }
+  };
+  const revokeOtherSessions = async () => {
+    if (!window.confirm("Sign out all other sessions?")) return;
+    setSessionBusy(true);
+    try {
+      await api("/auth/sessions/revoke-others", "POST");
+      setSessions(previous => previous.filter(session => session.current));
+    } catch (err) { setNotice(errorMessage(err)); }
+    finally { setSessionBusy(false); }
+  };
+  const logout = async () => { try { await api("/auth/logout", "POST"); } finally { setUser(null); setWorkspace(null); setWorkspaces([]); setChannel(null); setShowSessions(false); } };
   if (loading) return <main className="boot"><span className="brand-symbol">✳</span> GoreeCloud Teams</main>;
   if (!user) return <Welcome bootstrap={bootstrap} onLogin={refreshSession}/>;
   return <div className="shell">
@@ -337,6 +366,7 @@ export default function App() {
         </div>
         <div className="sidebar-label second-label">WORKSPACE TOOLS</div>
         {workspace?.role !== "member" && <button className="tool-link" onClick={() => { setShowInvite(true); setInviteCode(""); }}><UserPlus size={18}/> Invite a teammate</button>}
+        <button className="tool-link" onClick={() => void openSessions()}><ShieldCheck size={18}/> Manage sessions</button>
       </div>
       <div className="sidebar-foot"><div className="online-dot"/><span>Signed in as <strong>{user.displayName}</strong></span></div>
     </aside>
@@ -373,6 +403,24 @@ export default function App() {
         {hasOlderReplies && <button className="load-older" type="button" disabled={loadingOlderReplies} onClick={() => void loadOlderReplies()}>{loadingOlderReplies ? "Loading earlier replies…" : "Load earlier replies"}</button>}
         {replies.map(m => <MessageRow key={m.id} message={m} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove}/>)}
       </div><div className="composer-wrap"><Composer key={thread.id} channelName={channel?.name || ""} parent onSend={body => send(body, thread.id)}/></div></aside>}
+    {showSessions && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowSessions(false); }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Your active sessions">
+        <header><h2>Account sessions</h2><button aria-label="Close dialog" onClick={() => setShowSessions(false)}><X size={20}/></button></header>
+        <p className="muted">These are active sign-ins to your account. Session records do not store device fingerprints, IP addresses, or User-Agent strings.</p>
+        {sessionBusy && <p aria-live="polite" className="muted">Updating sessions…</p>}
+        <div className="session-list">
+          {sessions.map(item => <div key={item.id} className="session-item">
+            <div><strong>{item.current ? "This session" : "Other session"}</strong>
+              <p className="muted">{item.createdAt ? "Started " + new Date(item.createdAt).toLocaleString() : "Started before session history was available"}</p>
+              <p className="muted">Expires {new Date(item.expiresAt).toLocaleString()}</p>
+            </div>
+            <button type="button" disabled={sessionBusy} onClick={() => void revokeSession(item)}>{item.current ? "Sign out" : "Revoke"}</button>
+          </div>)}
+        </div>
+        <button className="primary-button" type="button" disabled={sessionBusy || !sessions.some(item => !item.current)}
+          onClick={() => void revokeOtherSessions()}>Sign out other sessions</button>
+      </div>
+    </div>}
     {showAddMember && channel && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddMember(false); }}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="Add private channel member">
         <header><h2>Add channel member</h2><button aria-label="Close dialog" onClick={() => setShowAddMember(false)}><X size={20}/></button></header>

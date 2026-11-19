@@ -23,3 +23,5 @@ edits, deletion, reactions, and on-demand paginated channel/thread history. Linu
 and Android installation and user-acceptance
 testing are distinct from successful source compilation. Release signing and
 device acceptance remain incomplete.
+Authenticated users may inspect and revoke account sessions without disclosing
+session tokens or persisting IP addresses/device fingerprints in session records.
