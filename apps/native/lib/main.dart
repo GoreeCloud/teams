@@ -387,9 +387,15 @@ class _TeamsHomeState extends State<TeamsHome> {
               }
             }
           } catch (_) {/* Ignore malformed optional event */}
-        },
-            onDone: () => scheduleReconnect(generation),
-            onError: (_) => scheduleReconnect(generation));
+        }, onDone: () {
+          if (mounted &&
+              generation == socketGeneration &&
+              live.closeCode == WebSocketStatus.policyViolation) {
+            clearClientSession(keepServer: true);
+          } else {
+            scheduleReconnect(generation);
+          }
+        }, onError: (_) => scheduleReconnect(generation));
       } catch (_) {
         scheduleReconnect(generation);
       }
@@ -760,15 +766,158 @@ class _TeamsHomeState extends State<TeamsHome> {
                     ]));
       });
 
+  Future<void> manageSessions() async {
+    if (api?.accessToken == null) return;
+    final List<Map<String, dynamic>> sessions;
+    try {
+      sessions = (await api!.request('/auth/sessions') as List)
+          .cast<Map<String, dynamic>>();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+      return;
+    }
+    if (!mounted) return;
+    bool submitting = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> revoke(Map<String, dynamic>? target) async {
+            if (submitting) return;
+            final isSelf = target?['current'] == true;
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (confirmationContext) => AlertDialog(
+                title: Text(target == null
+                    ? 'Sign out other sessions?'
+                    : isSelf
+                        ? 'Sign out this session?'
+                        : 'Revoke session?'),
+                content: const Text(
+                    'The selected sessions will lose access immediately.'),
+                actions: [
+                  TextButton(
+                      onPressed: () =>
+                          Navigator.pop(confirmationContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(confirmationContext, true),
+                      child: const Text('Sign out')),
+                ],
+              ),
+            );
+            if (confirmed != true || !context.mounted) return;
+            setDialogState(() => submitting = true);
+            try {
+              if (target == null) {
+                await api!
+                    .request('/auth/sessions/revoke-others', method: 'POST');
+              } else {
+                await api!.request('/auth/sessions/${target['id']}',
+                    method: 'DELETE');
+              }
+              if (!mounted || !dialogContext.mounted) return;
+              if (isSelf) {
+                Navigator.of(dialogContext).pop();
+                signOut();
+                return;
+              }
+              setDialogState(() {
+                if (target == null) {
+                  sessions.removeWhere((item) => item['current'] != true);
+                } else {
+                  sessions.removeWhere((item) => item['id'] == target['id']);
+                }
+                submitting = false;
+              });
+            } catch (e) {
+              if (dialogContext.mounted) {
+                setDialogState(() => submitting = false);
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(e.toString())));
+              }
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Account sessions'),
+            content: SizedBox(
+              width: 440,
+              height: 380,
+              child: Column(children: [
+                const Text(
+                    'Session records contain an anonymous ID and dates, not device fingerprints or IP addresses.'),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView(
+                    children: sessions.map((item) {
+                      final isSelf = item['current'] == true;
+                      final started = item['createdAt'] is num
+                          ? DateTime.fromMillisecondsSinceEpoch(
+                                  (item['createdAt'] as num).toInt())
+                              .toLocal()
+                              .toString()
+                          : 'Creation date unavailable (imported session)';
+                      final expires = item['expiresAt'] is num
+                          ? DateTime.fromMillisecondsSinceEpoch(
+                                  (item['expiresAt'] as num).toInt())
+                              .toLocal()
+                              .toString()
+                          : 'Unknown';
+                      return ListTile(
+                        title: Text(isSelf ? 'This session' : 'Other session'),
+                        subtitle: Text('Started: $started\nExpires: $expires'),
+                        isThreeLine: true,
+                        trailing: IconButton(
+                          tooltip: isSelf
+                              ? 'Sign out this session'
+                              : 'Revoke session',
+                          onPressed: submitting ? null : () => revoke(item),
+                          icon: const Icon(Icons.logout),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                if (submitting) const LinearProgressIndicator(),
+              ]),
+            ),
+            actions: [
+              TextButton(
+                  onPressed:
+                      submitting ? null : () => Navigator.pop(dialogContext),
+                  child: const Text('Close')),
+              FilledButton(
+                  onPressed: submitting ||
+                          !sessions.any((item) => item['current'] != true)
+                      ? null
+                      : () => revoke(null),
+                  child: const Text('Sign out other sessions')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void signOut() {
     api?.request('/auth/logout', method: 'POST').catchError((_) => null);
+    clearClientSession(keepServer: false);
+  }
+
+  void clearClientSession({required bool keepServer}) {
     socketGeneration++;
     reconnectTimer?.cancel();
     socket?.close();
+    if (!mounted) return;
     setState(() {
       api?.accessToken = null;
       currentUserId = null;
-      connected = false;
+      connected = keepServer;
+      register = false;
       workspaces = [];
       channels = [];
       dms = [];
@@ -1052,6 +1201,10 @@ class _TeamsHomeState extends State<TeamsHome> {
                 leading: const Icon(Icons.person_add_alt),
                 title: const Text('Invite a teammate'),
                 onTap: createInvite),
+          ListTile(
+              leading: const Icon(Icons.devices_other_outlined),
+              title: const Text('Account sessions'),
+              onTap: manageSessions),
           ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Sign out'),
