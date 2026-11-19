@@ -48,6 +48,13 @@ export function openDatabase(filename) {
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       emoji TEXT NOT NULL, PRIMARY KEY (message_id, user_id, emoji)
     );
+    CREATE TABLE IF NOT EXISTS pinned_messages (
+      message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      pinned_by TEXT NOT NULL REFERENCES users(id),
+      pinned_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS pins_by_channel ON pinned_messages(channel_id,pinned_at DESC,message_id DESC);
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at INTEGER NOT NULL
