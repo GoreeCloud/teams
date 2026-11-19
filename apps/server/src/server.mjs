@@ -32,7 +32,7 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     "SELECT role FROM memberships WHERE user_id=? AND workspace_id=?"
   ).get(userId, workspaceId)?.role;
   const channelFor = (userId, channelId) => {
-    const ch = db.prepare("SELECT id, workspace_id AS workspaceId, name, is_private AS isPrivate FROM channels WHERE id=?").get(channelId);
+    const ch = db.prepare("SELECT id, workspace_id AS workspaceId, name, is_private AS isPrivate, kind FROM channels WHERE id=?").get(channelId);
     if (!ch || !workspaceRole(userId, ch.workspaceId)) return null;
     if (ch.isPrivate && !db.prepare("SELECT 1 FROM channel_members WHERE channel_id=? AND user_id=?").get(channelId, userId)) return null;
     return ch;
@@ -98,6 +98,12 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
       if (socket.readyState === 1 && channelFor(userId, channelId)) socket.send(data);
     }
   };
+  const broadcastToUser = (recipientId, event) => {
+    const data = JSON.stringify(event);
+    for (const [socket, userId] of sockets) {
+      if (userId === recipientId && socket.readyState === 1) socket.send(data);
+    }
+  };
 
   app.addHook("onRequest", async (_req, reply) => {
     reply.header("X-Content-Type-Options", "nosniff");
@@ -138,7 +144,7 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
           db.prepare("INSERT INTO workspaces VALUES(?,?,?,?)").run(workspaceId, "GoreeCloud Teams", id, created);
           db.prepare("INSERT INTO memberships VALUES(?,?,?)").run(workspaceId, id, "owner");
           for (const name of ["general", "projects", "random"]) {
-            db.prepare("INSERT INTO channels VALUES(?,?,?,?,?)").run(randomUUID(), workspaceId, name, 0, created);
+            db.prepare("INSERT INTO channels(id,workspace_id,name,is_private,created_at) VALUES(?,?,?,?,?)").run(randomUUID(), workspaceId, name, 0, created);
           }
         } else {
           db.prepare("INSERT INTO memberships VALUES(?,?,?)").run(invite.workspace_id, id, invite.role);
@@ -178,7 +184,7 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     return db.prepare(`
       SELECT c.id,c.name,c.workspace_id AS workspaceId,c.is_private AS isPrivate
       FROM channels c LEFT JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=?
-      WHERE c.workspace_id=? AND (c.is_private=0 OR cm.user_id IS NOT NULL)
+      WHERE c.workspace_id=? AND c.kind='channel' AND (c.is_private=0 OR cm.user_id IS NOT NULL)
       ORDER BY c.name`).all(req.actor.id, req.params.workspaceId);
   });
   app.post("/api/workspaces/:workspaceId/channels", { preHandler: requireUser }, async (req, reply) => {
@@ -190,15 +196,77 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     const id = randomUUID(), privateFlag = req.body?.isPrivate === true ? 1 : 0;
     try {
       db.transaction(() => {
-        db.prepare("INSERT INTO channels VALUES(?,?,?,?,?)").run(id, req.params.workspaceId, name, privateFlag, now());
+        db.prepare("INSERT INTO channels(id,workspace_id,name,is_private,created_at) VALUES(?,?,?,?,?)").run(id, req.params.workspaceId, name, privateFlag, now());
         if (privateFlag) db.prepare("INSERT INTO channel_members VALUES(?,?)").run(id, req.actor.id);
       })();
     } catch { return error(reply, 409, "Channel name already exists"); }
     return reply.code(201).send({ id, name, workspaceId: req.params.workspaceId, isPrivate: privateFlag });
   });
+  // One-to-one direct conversations reuse the same message/thread/reaction pipeline
+  // but remain private and cannot be converted into public workspace channels.
+  const directConversation = (workspaceId, channelId, actorId) => {
+    const dc = db.prepare("SELECT member_a AS memberA, member_b AS memberB FROM direct_conversations WHERE channel_id=? AND workspace_id=?").get(channelId, workspaceId);
+    if (!dc || (dc.memberA !== actorId && dc.memberB !== actorId)) return null;
+    const peer = getUser(dc.memberA === actorId ? dc.memberB : dc.memberA);
+    return { id: channelId, workspaceId, name: peer.displayName, peerId: peer.id,
+      peerName: peer.displayName, isPrivate: 1, kind: "dm" };
+  };
+  app.get("/api/workspaces/:workspaceId/dms", { preHandler: requireUser }, async (req, reply) => {
+    if (!requireWorkspace(req, reply)) return;
+    const rows = db.prepare(`
+      SELECT channel_id AS channelId FROM direct_conversations
+      WHERE workspace_id=? AND (member_a=? OR member_b=?)
+      ORDER BY channel_id
+    `).all(req.params.workspaceId, req.actor.id, req.actor.id);
+    return rows.map(row => directConversation(req.params.workspaceId, row.channelId, req.actor.id));
+  });
+  app.post("/api/workspaces/:workspaceId/dms", { preHandler: requireUser }, async (req, reply) => {
+    if (!requireWorkspace(req, reply)) return;
+    const username = req.body?.username;
+    if (typeof username !== "string" || !USERNAME.test(username)) return error(reply, 400, "Valid teammate username required");
+    const peer = db.prepare("SELECT id FROM users WHERE username=?").get(username);
+    if (!peer || !workspaceRole(peer.id, req.params.workspaceId)) return error(reply, 404, "Workspace teammate not found");
+    if (peer.id === req.actor.id) return error(reply, 400, "Cannot direct-message yourself");
+    const [memberA, memberB] = [peer.id, req.actor.id].sort();
+    let channelId;
+    try {
+      channelId = db.transaction(() => {
+        const existing = db.prepare(`
+          SELECT channel_id AS channelId FROM direct_conversations
+          WHERE workspace_id=? AND member_a=? AND member_b=?
+        `).get(req.params.workspaceId, memberA, memberB);
+        if (existing) return existing.channelId;
+        const id = randomUUID();
+        db.prepare("INSERT INTO channels(id,workspace_id,name,is_private,created_at,kind) VALUES(?,?,?,?,?,?)")
+          .run(id, req.params.workspaceId, "dm-" + id, 1, now(), "dm");
+        db.prepare("INSERT INTO direct_conversations VALUES(?,?,?,?)")
+          .run(id, req.params.workspaceId, memberA, memberB);
+        db.prepare("INSERT INTO channel_members VALUES(?,?)").run(id, memberA);
+        db.prepare("INSERT INTO channel_members VALUES(?,?)").run(id, memberB);
+        return id;
+      })();
+    } catch {
+      // Unique pair index guards concurrent chat creation as well as duplicate requests.
+      const existing = db.prepare(`
+        SELECT channel_id AS channelId FROM direct_conversations
+        WHERE workspace_id=? AND member_a=? AND member_b=?
+      `).get(req.params.workspaceId, memberA, memberB);
+      if (!existing) return error(reply, 409, "Conversation could not be created");
+      channelId = existing.channelId;
+    }
+    for (const participant of [memberA, memberB]) {
+      broadcastToUser(participant, {
+        type: "dm.created",
+        workspaceId: req.params.workspaceId,
+        conversation: directConversation(req.params.workspaceId, channelId, participant)
+      });
+    }
+    return directConversation(req.params.workspaceId, channelId, req.actor.id);
+  });
   app.post("/api/channels/:channelId/members", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);
     if (!ch) return;
+    if (ch.kind === "dm") return error(reply, 403, "Direct message membership is fixed");
     const role = workspaceRole(req.actor.id, ch.workspaceId);
     if (role === "member") return error(reply, 403, "Admin role required");
     if (!ch.isPrivate) return error(reply, 400, "Only private channels require explicit members");

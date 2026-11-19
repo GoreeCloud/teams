@@ -134,8 +134,11 @@ class _TeamsHomeState extends State<TeamsHome> {
   bool connected = false, bootstrap = false, register = false, busy = false;
   String? currentUserId;
   String? workspaceId, workspaceName, channelId, channelName, threadId;
-  String? threadTitle;
-  List<Map<String, dynamic>> workspaces = [], channels = [], messages = [];
+  String? threadTitle, channelKind;
+  List<Map<String, dynamic>> workspaces = [],
+      channels = [],
+      dms = [],
+      messages = [];
   WebSocket? socket;
   Timer? reconnectTimer;
   int socketGeneration = 0;
@@ -239,29 +242,42 @@ class _TeamsHomeState extends State<TeamsHome> {
   }
 
   Future<void> loadChannels() async {
-    if (workspaceId == null) return;
-    final result =
-        await api!.request('/workspaces/$workspaceId/channels') as List;
-    if (!mounted) return;
+    final requestedWorkspace = workspaceId;
+    if (requestedWorkspace == null) return;
+    final responses = await Future.wait([
+      api!.request('/workspaces/$requestedWorkspace/channels'),
+      api!.request('/workspaces/$requestedWorkspace/dms'),
+    ]);
+    if (!mounted || requestedWorkspace != workspaceId) return;
     setState(() {
-      channels = result.cast<Map<String, dynamic>>();
-      final selected = channels.where((ch) => ch['id'] == channelId).toList();
+      channels = (responses[0] as List).cast<Map<String, dynamic>>();
+      dms = (responses[1] as List).cast<Map<String, dynamic>>();
+      final available = [...channels, ...dms];
+      final selected = available.where((ch) => ch['id'] == channelId).toList();
       final next = selected.isNotEmpty
           ? selected.first
-          : (channels.isNotEmpty ? channels.first : null);
+          : (channels.isNotEmpty
+              ? channels.first
+              : (dms.isNotEmpty ? dms.first : null));
       channelId = next?['id'] as String?;
-      channelName = next?['name'] as String?;
+      channelName = (next?['peerName'] ?? next?['name']) as String?;
+      channelKind = next?['kind'] as String?;
       threadId = null;
     });
     await loadMessages();
   }
 
   Future<void> loadMessages() async {
-    if (channelId == null) return;
+    final requestedChannel = channelId, requestedThread = threadId;
+    if (requestedChannel == null) return;
     final route =
-        '/channels/$channelId/messages${threadId != null ? '?parentId=$threadId' : ''}';
+        '/channels/$requestedChannel/messages${requestedThread != null ? '?parentId=$requestedThread' : ''}';
     final result = await api!.request(route) as List;
-    if (mounted) setState(() => messages = result.cast<Map<String, dynamic>>());
+    if (mounted &&
+        channelId == requestedChannel &&
+        threadId == requestedThread) {
+      setState(() => messages = result.cast<Map<String, dynamic>>());
+    }
   }
 
   void listenRealtime() {
@@ -278,6 +294,17 @@ class _TeamsHomeState extends State<TeamsHome> {
         live.listen((data) {
           try {
             final event = jsonDecode(data as String) as Map;
+            if (event['type'] == 'dm.created' &&
+                event['workspaceId'] == workspaceId &&
+                event['conversation'] is Map &&
+                mounted) {
+              final dm =
+                  Map<String, dynamic>.from(event['conversation'] as Map);
+              setState(() {
+                dms = [dm, ...dms.where((item) => item['id'] != dm['id'])];
+              });
+              return;
+            }
             if (event['channelId'] == channelId && event['message'] != null) {
               final message = event['message'] as Map;
               if ((threadId == null && message['parentId'] == null) ||
@@ -319,7 +346,8 @@ class _TeamsHomeState extends State<TeamsHome> {
   void chooseChannel(Map<String, dynamic> channel) {
     setState(() {
       channelId = channel['id'] as String;
-      channelName = channel['name'] as String;
+      channelName = (channel['peerName'] ?? channel['name']) as String;
+      channelKind = channel['kind'] as String?;
       threadId = null;
       threadTitle = null;
       messages = [];
@@ -403,6 +431,47 @@ class _TeamsHomeState extends State<TeamsHome> {
     });
   }
 
+  Future<void> startDirectMessage() async {
+    final controller = TextEditingController();
+    final username = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('New direct message'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Only you and this teammate can read the conversation.'),
+          const SizedBox(height: 14),
+          TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 32,
+              decoration:
+                  const InputDecoration(labelText: 'Teammate username')),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, controller.text.trim()),
+              child: const Text('Start conversation')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (username == null || username.isEmpty || workspaceId == null) return;
+    await guarded(() async {
+      final result = await api!.request('/workspaces/$workspaceId/dms',
+          method: 'POST', data: {'username': username}) as Map;
+      if (!mounted) return;
+      final dm = Map<String, dynamic>.from(result);
+      setState(() {
+        dms = [dm, ...dms.where((item) => item['id'] != dm['id'])];
+      });
+      chooseChannel(dm);
+    });
+  }
+
   Future<void> addChannel() async {
     final controller = TextEditingController();
     bool private = false;
@@ -470,9 +539,11 @@ class _TeamsHomeState extends State<TeamsHome> {
       connected = false;
       workspaces = [];
       channels = [];
+      dms = [];
       messages = [];
       workspaceId = null;
       channelId = null;
+      channelKind = null;
       threadId = null;
     });
   }
@@ -522,7 +593,7 @@ class _TeamsHomeState extends State<TeamsHome> {
                                             Text(m['body'] as String? ?? ''),
                                         onTap: () {
                                           Navigator.pop(context);
-                                          final match = channels
+                                          final match = [...channels, ...dms]
                                               .where((c) =>
                                                   c['id'] == m['channelId'])
                                               .toList();
@@ -668,7 +739,10 @@ class _TeamsHomeState extends State<TeamsHome> {
                             fontWeight: FontWeight.bold, fontSize: 12))),
                 IconButton(
                     tooltip: 'New channel',
-                    onPressed: addChannel,
+                    onPressed: workspaces.any((w) =>
+                            w['id'] == workspaceId && w['role'] != 'member')
+                        ? addChannel
+                        : null,
                     icon: const Icon(Icons.add)),
               ])),
           Expanded(
@@ -695,10 +769,48 @@ class _TeamsHomeState extends State<TeamsHome> {
                         ));
                   })),
           const Divider(height: 1),
-          ListTile(
-              leading: const Icon(Icons.person_add_alt),
-              title: const Text('Invite a teammate'),
-              onTap: createInvite),
+          Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 12, 0),
+              child: Row(children: [
+                const Expanded(
+                    child: Text('DIRECT MESSAGES',
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.bold))),
+                IconButton(
+                    tooltip: 'New direct message',
+                    onPressed: startDirectMessage,
+                    icon: const Icon(Icons.add_comment_outlined)),
+              ])),
+          if (dms.isEmpty)
+            const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                child: Text('Start a conversation with a teammate.',
+                    style: TextStyle(fontSize: 12))),
+          SizedBox(
+            height: dms.length < 4 ? dms.length * 56.0 : 224,
+            child: ListView.builder(
+              itemCount: dms.length,
+              itemBuilder: (context, index) {
+                final dm = dms[index];
+                return ListTile(
+                  selected: dm['id'] == channelId,
+                  selectedTileColor:
+                      Theme.of(context).colorScheme.secondaryContainer,
+                  leading: const Icon(Icons.chat_bubble_outline, size: 20),
+                  title: Text((dm['peerName'] ?? dm['name']) as String,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  onTap: () => chooseChannel(dm),
+                );
+              },
+            ),
+          ),
+          const Divider(height: 1),
+          if (workspaces
+              .any((w) => w['id'] == workspaceId && w['role'] != 'member'))
+            ListTile(
+                leading: const Icon(Icons.person_add_alt),
+                title: const Text('Invite a teammate'),
+                onTap: createInvite),
           ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Sign out'),
@@ -832,7 +944,9 @@ class _TeamsHomeState extends State<TeamsHome> {
                           null,
                       decoration: InputDecoration(
                           labelText: threadId == null
-                              ? 'Message #$channelName'
+                              ? (channelKind == 'dm'
+                                  ? 'Message $channelName'
+                                  : 'Message #$channelName')
                               : 'Reply in thread',
                           filled: true,
                           fillColor: Theme.of(context).colorScheme.surface))),
@@ -851,8 +965,11 @@ class _TeamsHomeState extends State<TeamsHome> {
       appBar: currentUserId == null
           ? null
           : AppBar(
-              title: Text(
-                  threadId != null ? 'Thread' : '#${channelName ?? 'Teams'}'),
+              title: Text(threadId != null
+                  ? 'Thread'
+                  : channelKind == 'dm'
+                      ? (channelName ?? 'Direct message')
+                      : '#${channelName ?? 'Teams'}'),
               actions: [
                   IconButton(
                       onPressed: searchMessages,

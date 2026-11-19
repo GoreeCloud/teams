@@ -16,8 +16,9 @@ All clients ───────WebSocket───┘         └── Scoped 
 - Sessions: opaque tokens, hashed in the sessions table, 30-day expiry; owner
   bootstrap and single-use, 24-hour invitation codes.
 - Channels: public by default. Private channels require explicit membership.
+- Direct messages: immutable two-member conversation pairs with unique per-workspace identity, scoped by the same channel authorization and event checks.
 - Messages: basic text, edit, soft delete, replies, reactions and scoped
-  substring search. No attachments, DMs, voice calls, video, presence or
+  substring search. No attachments, group DMs, voice calls, video, presence or
   federation yet.
 - Real-time: WebSocket pushes scoped per-channel events; clients refresh
   messages on receipt. No durable event queue or offline conflict resolution.

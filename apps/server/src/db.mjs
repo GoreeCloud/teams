@@ -58,5 +58,21 @@ export function openDatabase(filename) {
       expires_at INTEGER NOT NULL, used_at INTEGER
     );
   `);
+  // Preserve existing developer databases when evolving the initial schema.
+  const channelColumns = db.pragma("table_info(channels)").map(column => column.name);
+  if (!channelColumns.includes("kind")) {
+    db.exec("ALTER TABLE channels ADD COLUMN kind TEXT NOT NULL DEFAULT 'channel' CHECK(kind IN ('channel','dm'))");
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS direct_conversations (
+      channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      member_a TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      member_b TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      CHECK (member_a < member_b),
+      UNIQUE (workspace_id, member_a, member_b)
+    );
+    CREATE INDEX IF NOT EXISTS dms_by_workspace ON direct_conversations(workspace_id);
+  `);
   return db;
 }
