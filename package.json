@@ -10,6 +10,7 @@
     "dev:web": "npm run dev -w @goreecloud/teams-web",
     "build": "npm run build -w @goreecloud/teams-web",
     "test": "npm run test -w @goreecloud/teams-server",
+    "backup": "node scripts/backup.mjs",
     "check": "npm run check -w @goreecloud/teams-web && npm test && npm run build"
   },
   "license": "MIT"
