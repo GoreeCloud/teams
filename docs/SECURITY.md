@@ -8,7 +8,7 @@
   it in the Authorization header. There is no SSO or MFA yet.
 - **Authorization**: Every workspace, channel, message, reply, search, and
   event is checked against workspace membership and (for private channels)
-  explicit channel membership. One-to-one conversations have immutable two-member membership and cannot be expanded through channel-management APIs. Only admins/owners may invite or add channels;
+  explicit channel membership. The authenticated workspace member directory exposes only user IDs, usernames, display names and roles to other workspace members. One-to-one conversations have immutable two-member membership and cannot be expanded through channel-management APIs. Only admins/owners may invite or add channels;
   only authors edit their messages.
 - **GoreeShield**: No product telemetry or ad tracking. Search and private
   channels are scoped to authorized viewers. Data lives in an operator-owned
@@ -41,6 +41,14 @@ A synthetic integration test verifies logout isolation and TTL expiry at the
 next event. Full session management, MFA and production monitoring are not
 implemented; expired but idle sockets are closed on the next event rather
 than by an independent periodic expiration sweep.
+
+## Verified snapshot implementation
+
+The `scripts/backup.mjs` CLI uses SQLite's online backup API to capture
+committed WAL state to a private, integrity-checked, no-overwrite snapshot.
+See [BACKUPS.md](BACKUPS.md). Backups contain private messages and hashes:
+encrypt them at rest/off-host, apply GoreeShield retention policies and test
+restoration on staging. This is not a production recovery acceptance.
 
 ## Known blockers before production
 - Password reset, MFA, external Identity SSO, device/session management.

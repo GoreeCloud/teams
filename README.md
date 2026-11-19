@@ -11,6 +11,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 
 - Single-owner first-run setup, local user login, single-use 24-hour invites
 - Workspaces, public/private channels and channel access enforcement
+- Workspace member directory for teammate selection and admin-controlled private-channel invitations
 - One-to-one direct messages with workspace membership and participant-only access
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Workspace-scoped search, authenticated WebSocket event fanout
@@ -54,6 +55,15 @@ npm run start -w @goreecloud/teams-server
 After building web assets, production mode serves the static frontend from the
 Fastify process if `apps/web/dist` exists. Set `TEAMS_DB_PATH` and
 `TEAMS_SITE_ORIGIN` appropriately for the host and TLS terminator.
+
+## Online SQLite backups
+
+`npm run backup -- --source /path/teams.sqlite --destination /private/backup/teams-YYYY-MM-DD.sqlite`
+takes an integrity-checked online snapshot without copying a live WAL file.
+It refuses overwriting an existing destination and protects snapshot file
+permissions. See [backup and staged-recovery guidance](docs/BACKUPS.md).
+A real off-host backup strategy and staged restore drill remain required
+before production acceptance.
 
 ## Native Linux / Android
 

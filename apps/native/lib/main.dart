@@ -138,6 +138,7 @@ class _TeamsHomeState extends State<TeamsHome> {
   List<Map<String, dynamic>> workspaces = [],
       channels = [],
       dms = [],
+      members = [],
       messages = [];
   WebSocket? socket;
   Timer? reconnectTimer;
@@ -247,11 +248,13 @@ class _TeamsHomeState extends State<TeamsHome> {
     final responses = await Future.wait([
       api!.request('/workspaces/$requestedWorkspace/channels'),
       api!.request('/workspaces/$requestedWorkspace/dms'),
+      api!.request('/workspaces/$requestedWorkspace/members'),
     ]);
     if (!mounted || requestedWorkspace != workspaceId) return;
     setState(() {
       channels = (responses[0] as List).cast<Map<String, dynamic>>();
       dms = (responses[1] as List).cast<Map<String, dynamic>>();
+      members = (responses[2] as List).cast<Map<String, dynamic>>();
       final available = [...channels, ...dms];
       final selected = available.where((ch) => ch['id'] == channelId).toList();
       final next = selected.isNotEmpty
@@ -431,44 +434,101 @@ class _TeamsHomeState extends State<TeamsHome> {
     });
   }
 
-  Future<void> startDirectMessage() async {
-    final controller = TextEditingController();
-    final username = await showDialog<String>(
+  bool get canManageCurrentWorkspace =>
+      workspaces.any((w) => w['id'] == workspaceId && w['role'] != 'member');
+
+  bool get canAddCurrentChannelMember =>
+      canManageCurrentWorkspace &&
+      channelKind != 'dm' &&
+      channels.any((ch) => ch['id'] == channelId && ch['isPrivate'] == 1);
+
+  Future<String?> pickTeammate(String title, String explanation) async {
+    final available = members.where((m) => m['id'] != currentUserId).toList();
+    if (available.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Invite a teammate to the workspace first.')));
+      }
+      return null;
+    }
+    String? selected;
+    return showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('New direct message'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Only you and this teammate can read the conversation.'),
-          const SizedBox(height: 14),
-          TextField(
-              controller: controller,
-              autofocus: true,
-              maxLength: 32,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(explanation),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: selected,
+              isExpanded: true,
               decoration:
-                  const InputDecoration(labelText: 'Teammate username')),
-        ]),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, controller.text.trim()),
-              child: const Text('Start conversation')),
-        ],
+                  const InputDecoration(labelText: 'Workspace teammate'),
+              items: available
+                  .map((member) => DropdownMenuItem<String>(
+                        value: member['username'] as String,
+                        child: Text(
+                            '${member['displayName']} (@${member['username']})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                      ))
+                  .toList(),
+              onChanged: (username) =>
+                  setDialogState(() => selected = username),
+            ),
+          ]),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: selected == null
+                  ? null
+                  : () => Navigator.pop(dialogContext, selected),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
       ),
     );
-    controller.dispose();
-    if (username == null || username.isEmpty || workspaceId == null) return;
+  }
+
+  Future<void> startDirectMessage() async {
+    final currentWorkspace = workspaceId;
+    if (currentWorkspace == null) return;
+    final username = await pickTeammate(
+      'New direct message',
+      'Only you and this teammate can read the conversation.',
+    );
+    if (username == null || !mounted || currentWorkspace != workspaceId) return;
     await guarded(() async {
-      final result = await api!.request('/workspaces/$workspaceId/dms',
+      final result = await api!.request('/workspaces/$currentWorkspace/dms',
           method: 'POST', data: {'username': username}) as Map;
-      if (!mounted) return;
+      if (!mounted || currentWorkspace != workspaceId) return;
       final dm = Map<String, dynamic>.from(result);
       setState(() {
         dms = [dm, ...dms.where((item) => item['id'] != dm['id'])];
       });
       chooseChannel(dm);
+    });
+  }
+
+  Future<void> addChannelMember() async {
+    final currentChannel = channelId;
+    if (currentChannel == null || !canAddCurrentChannelMember) return;
+    final username = await pickTeammate(
+      'Add private channel member',
+      'The teammate will be able to read existing channel messages.',
+    );
+    if (username == null || !mounted || currentChannel != channelId) return;
+    await guarded(() async {
+      await api!.request('/channels/$currentChannel/members',
+          method: 'POST', data: {'username': username});
+      if (mounted && currentChannel == channelId) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Channel membership updated.')));
+      }
     });
   }
 
@@ -540,6 +600,7 @@ class _TeamsHomeState extends State<TeamsHome> {
       workspaces = [];
       channels = [];
       dms = [];
+      members = [];
       messages = [];
       workspaceId = null;
       channelId = null;
@@ -971,6 +1032,11 @@ class _TeamsHomeState extends State<TeamsHome> {
                       ? (channelName ?? 'Direct message')
                       : '#${channelName ?? 'Teams'}'),
               actions: [
+                  if (canAddCurrentChannelMember)
+                    IconButton(
+                        onPressed: addChannelMember,
+                        tooltip: 'Add private channel member',
+                        icon: const Icon(Icons.person_add_alt_outlined)),
                   IconButton(
                       onPressed: searchMessages,
                       tooltip: 'Search messages',
