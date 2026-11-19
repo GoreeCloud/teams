@@ -17,7 +17,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)
 - SQLite persistence with WAL, Argon2id password hashes and opaque sessions
-- Basic API tests, Flutter widget test and platform CI source/build jobs
+- Basic API tests, Flutter widget test, Linux desktop build and Android debug APK CI jobs
 
 **Not yet supported:** file attachments, group DMs, voice/video calls, advanced
 permissions, E2EE, complete mobile notifications, offline synchronization,
