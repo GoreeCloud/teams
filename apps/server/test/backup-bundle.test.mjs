@@ -33,6 +33,9 @@ async function fixture(t,{withAttachment = true} = {}) {
     .run(channelId,workspaceId,"general",0,timestamp,"channel");
   db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,NULL,NULL)")
     .run(messageId,channelId,userId,"Private synthetic attachment message",null,timestamp);
+  // Exercise cross-feature recovery of pinned content as well as blobs.
+  db.prepare("INSERT INTO pinned_messages(message_id,channel_id,pinned_by,pinned_at) VALUES(?,?,?,?)")
+    .run(messageId,channelId,userId,timestamp);
   // A real SQLite WAL transaction is still openable through backupDatabase.
   const bytes=Buffer.from("synthetic personal archive: not real user data\n");
   if(withAttachment) {
@@ -42,7 +45,7 @@ async function fixture(t,{withAttachment = true} = {}) {
   } else {
     fs.mkdirSync(attachmentDirectory,{mode:0o700});
   }
-  return {root,databaseFile,attachmentDirectory,db,attachmentId,bytes,userId};
+  return {root,databaseFile,attachmentDirectory,db,attachmentId,bytes,userId,channelId,messageId};
 }
 
 test("private bundle captures committed WAL and attachment bytes with checksums and mode controls", async t=>{
@@ -90,6 +93,13 @@ test("private bundle captures committed WAL and attachment bytes with checksums 
   });
   assert.equal(download.statusCode,200,download.body);
   assert.deepEqual(download.rawPayload,f.bytes);
+  const pins=await app.inject({
+    method:"GET",url:"/api/channels/"+f.channelId+"/pins",
+    headers:{authorization:"Bearer "+login.json().accessToken}
+  });
+  assert.equal(pins.statusCode,200,pins.body);
+  assert.equal(pins.json()[0].id,f.messageId);
+  assert.equal(pins.json()[0].pinnedBy,f.userId);
 });
 
 test("a blank attachment table publishes a complete empty private bundle",async t=>{
