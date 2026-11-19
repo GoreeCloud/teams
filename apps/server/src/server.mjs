@@ -84,8 +84,8 @@ export function createServer({
   };
   const issueSession = (reply, userId) => {
     const secret = token();
-    db.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES (?,?,?)")
-      .run(hashToken(secret), userId, Date.now() + 30 * 86400_000);
+    db.prepare("INSERT INTO sessions(token_hash,user_id,expires_at,id,created_at) VALUES (?,?,?,?,?)")
+      .run(hashToken(secret), userId, Date.now() + 30 * 86400_000, randomUUID(), Date.now());
     reply.header("set-cookie",
       "gc_teams_session=" + secret + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000" +
       (process.env.NODE_ENV === "production" ? "; Secure" : ""));
@@ -192,16 +192,53 @@ export function createServer({
     const accessToken = issueSession(reply, user.id);
     return { user: getUser(user.id), accessToken };
   });
-  app.post("/api/auth/logout", { preHandler: requireUser }, async (req, reply) => {
-    db.prepare("DELETE FROM sessions WHERE token_hash=?").run(req.actor.sessionHash);
+  const closeSessionSockets = hashes => {
+    const toClose = new Set(hashes);
     for (const [socket, session] of sockets) {
-      if (session.sessionHash === req.actor.sessionHash) {
+      if (toClose.has(session.sessionHash)) {
         sockets.delete(socket);
         socket.close(1008, "Session revoked");
       }
     }
-    reply.header("set-cookie", "gc_teams_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+  };
+  const clearSessionCookie = reply => reply.header("set-cookie",
+    "gc_teams_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+  app.post("/api/auth/logout", { preHandler: requireUser }, async (req, reply) => {
+    db.prepare("DELETE FROM sessions WHERE token_hash=?").run(req.actor.sessionHash);
+    closeSessionSockets([req.actor.sessionHash]);
+    clearSessionCookie(reply);
     return { ok: true };
+  });
+  // Public random UUIDs have no relation to the bearer token/hash. Never
+  // expose token hashes, IPs, User-Agent strings or raw device fingerprints.
+  app.get("/api/auth/sessions", { preHandler: requireUser }, async req =>
+    db.prepare(`SELECT id, created_at AS createdAt, expires_at AS expiresAt,
+      (token_hash=?) AS current
+      FROM sessions WHERE user_id=? AND expires_at>?
+      ORDER BY created_at DESC, id DESC LIMIT 100`)
+      .all(req.actor.sessionHash, req.actor.id, Date.now())
+      .map(row => ({ ...row, current: !!row.current })));
+  app.delete("/api/auth/sessions/:sessionId", { preHandler: requireUser }, async (req, reply) => {
+    const id = req.params.sessionId;
+    if (typeof id !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
+      return error(reply, 400, "Invalid session ID");
+    }
+    const existing = db.prepare("SELECT token_hash AS tokenHash FROM sessions WHERE id=? AND user_id=?")
+      .get(id, req.actor.id);
+    if (!existing) return error(reply, 404, "Session not found");
+    db.prepare("DELETE FROM sessions WHERE id=? AND user_id=?").run(id, req.actor.id);
+    closeSessionSockets([existing.tokenHash]);
+    const current = existing.tokenHash === req.actor.sessionHash;
+    if (current) clearSessionCookie(reply);
+    return { ok: true, current };
+  });
+  app.post("/api/auth/sessions/revoke-others", { preHandler: requireUser }, async req => {
+    const others = db.prepare("SELECT token_hash AS tokenHash FROM sessions WHERE user_id=? AND token_hash<>?")
+      .all(req.actor.id, req.actor.sessionHash);
+    const result = db.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash<>?")
+      .run(req.actor.id, req.actor.sessionHash);
+    closeSessionSockets(others.map(row => row.tokenHash));
+    return { ok: true, revokedCount: result.changes };
   });
   app.get("/api/me", { preHandler: requireUser }, async req => ({ user: getUser(req.actor.id) }));
   app.get("/api/workspaces", { preHandler: requireUser }, async req =>
