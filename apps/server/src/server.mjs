@@ -550,6 +550,46 @@ export function createServer({
     reply.type("application/octet-stream");
     return reply.send(bytes);
   });
+  app.get("/api/workspaces/:workspaceId/unread", { preHandler: requireUser }, async (req, reply) => {
+    if (!requireWorkspace(req, reply)) return;
+    // Only root messages count as unread; replies remain navigable inside threads.
+    // Channel and private membership are checked again on each request.
+    return db.prepare(`
+      SELECT c.id AS channelId, COUNT(m.id) AS count
+      FROM channels c JOIN messages m ON m.channel_id=c.id
+      LEFT JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=?
+      LEFT JOIN channel_reads r ON r.channel_id=c.id AND r.user_id=?
+      WHERE c.workspace_id=? AND (c.is_private=0 OR cm.user_id IS NOT NULL)
+        AND m.parent_id IS NULL AND m.deleted_at IS NULL AND m.author_id<>?
+        AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at
+          OR (m.created_at = r.last_read_at AND m.id > r.last_read_id))
+      GROUP BY c.id ORDER BY c.id LIMIT 500
+    `).all(req.actor.id, req.actor.id, req.params.workspaceId, req.actor.id);
+  });
+  app.post("/api/channels/:channelId/read", { preHandler: requireUser }, async (req, reply) => {
+    const ch = requireChannel(req, reply, req.params.channelId);
+    if (!ch) return;
+    const messageId = req.body?.messageId;
+    if (typeof messageId !== "string" ||
+        !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(messageId)) {
+      return error(reply, 400, "Valid root message ID required");
+    }
+    const message = messageById(messageId);
+    if (!message || message.channel_id !== ch.id || message.parent_id !== null) {
+      return error(reply, 404, "Root message not found in this conversation");
+    }
+    db.prepare(`INSERT INTO channel_reads(user_id,channel_id,last_read_at,last_read_id)
+      VALUES (?,?,?,?) ON CONFLICT(user_id,channel_id) DO UPDATE SET
+        last_read_at=excluded.last_read_at,last_read_id=excluded.last_read_id
+      WHERE excluded.last_read_at > channel_reads.last_read_at
+         OR (excluded.last_read_at = channel_reads.last_read_at
+         AND excluded.last_read_id > channel_reads.last_read_id)`)
+      .run(req.actor.id, ch.id, message.created_at, message.id);
+    broadcastToUser(req.actor.id, {
+      type: "unread.updated", workspaceId: ch.workspaceId, channelId: ch.id
+    });
+    return { ok: true };
+  });
   app.get("/api/channels/:channelId/messages", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);
     if (!ch) return;

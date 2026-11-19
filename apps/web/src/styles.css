@@ -200,3 +200,6 @@ h1,h2,h3,p { margin-top:0 } .muted { color:var(--text-soft); line-height:1.6 } .
 .session-item p { font-size:.75rem; margin:6px 0 0 }
 .session-item button { flex:0 0 auto; border:1px solid var(--outline); background:var(--surface-tonal); color:var(--text); border-radius:10px; padding:10px 12px; min-height:40px }
 .session-item button:hover:not(:disabled) { background:var(--brand-subtle) }
+
+.unread-count { margin-left:auto; min-width:23px; min-height:22px; padding:2px 7px; border-radius:99px; display:inline-flex; justify-content:center; align-items:center; background:var(--brand-subtle); color:var(--text); font-size:.72rem; font-weight:750; font-variant-numeric:tabular-nums }
+.channel-link:not(.selected):has(.unread-count) { font-weight:700 }

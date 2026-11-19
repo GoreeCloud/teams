@@ -32,6 +32,16 @@ All clients ───────WebSocket───┘         └── Scoped 
   (created_at, id), maximum 100 rows per request and default 50. Cursors must
   belong to the exact authorized channel and root/reply scope. Web and native
   clients load additional pages on request rather than unbounded fetch.
+- Unread state: the server persists per-account, per-channel monotonic
+  (created_at, id) root-message cursors in SQLite. Only authorized channels,
+  private conversations and group DMs are returned by workspace unread counts.
+  Counts exclude the account's own messages, deleted messages and threaded
+  replies. Read requests require an actual root message in that same channel,
+  cannot move the cursor backwards, and notify only the account's sessions.
+  Web and Flutter clients show sidebar counts; they acknowledge only a visible,
+  foreground conversation. No read receipts are disclosed to other users and
+  offline push notifications are not implemented. Expensive workspace counts
+  have not received a production-scale benchmark.
 - Real-time: WebSocket pushes scoped per-channel events; clients merge
   message events into the current view without discarding older loaded pages.
   Web transport retries unexpected interruptions with capped exponential delays.
