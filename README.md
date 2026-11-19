@@ -11,7 +11,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 
 - Single-owner first-run setup, local user login, single-use 24-hour invites
 - Workspaces, public/private channels and channel access enforcement
-- Workspace member directory for teammate selection and admin-controlled private-channel invitations
+- Workspace member directory and admin-controlled private-channel membership additions/removals
 - One-to-one and 3–30-person private group conversations, with participant-only access and fixed group membership
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Permission-checked, cursor-paginated message and reply history in all clients

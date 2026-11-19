@@ -391,6 +391,19 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     }
     return reply.code(201).send(groupConversation(req.params.workspaceId, id, req.actor.id));
   });
+  app.get("/api/channels/:channelId/members", { preHandler: requireUser }, async (req, reply) => {
+    const ch = requireChannel(req, reply, req.params.channelId);
+    if (!ch) return;
+    if (ch.kind === "dm") return error(reply, 403, "Direct message membership is fixed");
+    if (!ch.isPrivate) return error(reply, 400, "Public channels have no explicit membership list");
+    return db.prepare(`SELECT u.id, u.username, u.display_name AS displayName, m.role
+      FROM channel_members cm
+      JOIN memberships m ON m.user_id=cm.user_id AND m.workspace_id=?
+      JOIN users u ON u.id=cm.user_id
+      WHERE cm.channel_id=?
+      ORDER BY u.display_name COLLATE NOCASE, u.username COLLATE NOCASE`)
+      .all(ch.workspaceId, ch.id);
+  });
   app.post("/api/channels/:channelId/members", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);
     if (!ch) return;
@@ -400,7 +413,43 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     if (!ch.isPrivate) return error(reply, 400, "Only private channels require explicit members");
     const user = db.prepare("SELECT id FROM users WHERE username=?").get(req.body?.username || "");
     if (!user || !workspaceRole(user.id, ch.workspaceId)) return error(reply, 404, "Workspace member not found");
-    db.prepare("INSERT OR IGNORE INTO channel_members VALUES(?,?)").run(ch.id, user.id);
+    const added = db.prepare("INSERT OR IGNORE INTO channel_members VALUES(?,?)").run(ch.id, user.id).changes;
+    if (added) {
+      broadcastToUser(user.id, {
+        type: "channel.added", workspaceId: ch.workspaceId, channelId: ch.id,
+        channel: { id: ch.id, workspaceId: ch.workspaceId, name: ch.name, kind: "channel", isPrivate: 1 }
+      });
+      broadcast(ch.id, { type: "channel.membership_updated", channelId: ch.id });
+    }
+    return { ok: true, added: !!added };
+  });
+  app.delete("/api/channels/:channelId/members/:memberId", { preHandler: requireUser }, async (req, reply) => {
+    const ch = requireChannel(req, reply, req.params.channelId);
+    if (!ch) return;
+    if (ch.kind === "dm") return error(reply, 403, "Direct message membership is fixed");
+    if (!ch.isPrivate) return error(reply, 400, "Public channels have no explicit membership list");
+    const role = workspaceRole(req.actor.id, ch.workspaceId);
+    if (role === "member") return error(reply, 403, "Admin role required");
+    const id = req.params.memberId;
+    if (typeof id !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
+      return error(reply, 400, "Invalid member ID");
+    }
+    if (id === req.actor.id) return error(reply, 409, "Cannot remove yourself as channel manager");
+    const member = db.prepare(`SELECT m.role FROM channel_members cm
+      JOIN memberships m ON m.user_id=cm.user_id AND m.workspace_id=?
+      WHERE cm.channel_id=? AND cm.user_id=?`).get(ch.workspaceId, ch.id, id);
+    if (!member) return error(reply, 404, "Channel member not found");
+    if (member.role === "owner") return error(reply, 403, "Workspace owner cannot be removed");
+    const remainingManagers = db.prepare(`SELECT count(*) AS count FROM channel_members cm
+      JOIN memberships m ON m.user_id=cm.user_id AND m.workspace_id=?
+      WHERE cm.channel_id=? AND cm.user_id<>? AND m.role IN ('owner','admin')`)
+      .get(ch.workspaceId, ch.id, id).count;
+    if (!remainingManagers) return error(reply, 409, "Channel must retain an admin or owner");
+    db.prepare("DELETE FROM channel_members WHERE channel_id=? AND user_id=?").run(ch.id, id);
+    broadcastToUser(id, {
+      type: "channel.removed", workspaceId: ch.workspaceId, channelId: ch.id
+    });
+    broadcast(ch.id, { type: "channel.membership_updated", channelId: ch.id });
     return { ok: true };
   });
   app.post("/api/workspaces/:workspaceId/invites", { preHandler: requireUser }, async (req, reply) => {

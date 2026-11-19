@@ -5,7 +5,7 @@ export type SessionInfo = { id:string; createdAt:number|null; expiresAt:number; 
 export type Channel = { id: string; name: string; workspaceId: string; isPrivate: number; kind?: "channel"|"dm"|"group_dm"; peerName?: string; peerId?: string; memberCount?: number };
 export type Reaction = { emoji: string; count: number };
 export type Message = { id: string; channelId: string; authorId: string; author: string; body: string; parentId: string|null; createdAt: string; editedAt: string|null; deletedAt: string|null; reactions: Reaction[] };
-export type Event = { type: string; channelId?: string; message?: Message; workspaceId?: string; conversation?: Channel };
+export type Event = { type: string; channelId?: string; channel?: Channel; message?: Message; workspaceId?: string; conversation?: Channel };
 export async function api<T>(url: string, method = "GET", body?: object): Promise<T> {
   const response = await fetch("/api" + url, {
     method, credentials: "same-origin",
