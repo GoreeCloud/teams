@@ -16,6 +16,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Permission-checked, cursor-paginated message and reply history in all clients
 - Workspace-scoped search, authenticated WebSocket event fanout
+- Reconnecting web real-time transport with recent-history catch-up after interruptions
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)
 - SQLite persistence with WAL, Argon2id password hashes and opaque sessions

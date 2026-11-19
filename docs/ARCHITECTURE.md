@@ -34,6 +34,12 @@ All clients ───────WebSocket───┘         └── Scoped 
   clients load additional pages on request rather than unbounded fetch.
 - Real-time: WebSocket pushes scoped per-channel events; clients merge
   message events into the current view without discarding older loaded pages.
+  Web transport retries unexpected interruptions with capped exponential delays.
+  After reconnection, the client revalidates authorized workspace membership and
+  fetches the most recent root/thread pages, retaining messages newer than the
+  fetched snapshot. Replaced older pages can be loaded again; **events beyond
+  the latest 50 root/reply messages are not guaranteed to be recovered**.
+  Session-policy closure (1008) never reconnects automatically.
   No durable event queue, background notification delivery or offline conflict
   resolution.
 - MIPS: design tokens are an alpha dependency; GoreeShield (privacy),

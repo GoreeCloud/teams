@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
-import { api, connectEvents, type Channel, type Event, type Member, type Message, type SessionInfo, type User, type Workspace } from "./api";
+import { api, connectEvents, reconcileRecentMessages, type Channel, type Event, type Member, type Message, type SessionInfo, type User, type Workspace } from "./api";
 
 const shortTime = (value: string) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const errorMessage = (err: unknown) => err instanceof Error ? err.message : "Something went wrong";
@@ -219,7 +219,8 @@ export default function App() {
   };
   useEffect(() => {
     if (!user) return;
-    return connectEvents((event: Event) => {
+    let active = true;
+    const disconnect = connectEvents((event: Event) => {
       if (event.type === "dm.created" && (event.conversation?.kind === "dm" || event.conversation?.kind === "group_dm") && event.workspaceId === workspace?.id) {
         const conversation = event.conversation;
         setDms(previous => [conversation, ...previous.filter(dm => dm.id !== conversation.id)]);
@@ -255,9 +256,53 @@ export default function App() {
       else setMessages(prev => apply(prev));
       if (thread?.id === m.id) setThread(m);
     }, () => {
+      if (!active) return;
       setShowSessions(false); setChannel(null); setWorkspace(null); setWorkspaces([]);
       void refreshSession();
+    }, () => {
+      // The server has no durable WebSocket event queue. On reconnect, fetch
+      // fresh navigation and a contiguous recent page for the selected view.
+      if (!active) return;
+      const scopeId = workspace?.id;
+      if (scopeId) {
+        void Promise.all([
+          api<Channel[]>("/workspaces/" + scopeId + "/channels"),
+          api<Channel[]>("/workspaces/" + scopeId + "/dms"),
+          api<Member[]>("/workspaces/" + scopeId + "/members")
+        ]).then(([recentChannels, recentDms, recentMembers]) => {
+          if (!active) return;
+          setChannels(recentChannels); setDms(recentDms); setMembers(recentMembers);
+          if (channel && ![...recentChannels,...recentDms].some(entry => entry.id === channel.id)) {
+            setChannel(recentChannels[0] || recentDms[0] || null);
+            setThread(null);
+          }
+        }).catch(() => { if (active) setNotice("Connection restored, but the workspace could not be refreshed."); });
+      }
+      if (channel) {
+        const requestedChannelId = channel.id;
+        const rootPage = api<Message[]>("/channels/" + requestedChannelId + "/messages");
+        const threadPage = thread
+          ? api<Message[]>("/channels/" + requestedChannelId + "/messages?parentId=" + thread.id)
+          : Promise.resolve(null);
+        void Promise.all([rootPage,threadPage]).then(([roots,threadReplies]) => {
+          if (!active || currentChannelId.current !== requestedChannelId) return;
+          setMessages(previous => reconcileRecentMessages(previous,roots));
+          setHasOlder(roots.length === 50); setLoadingOlder(false);
+          if (threadReplies) {
+            setReplies(previous => reconcileRecentMessages(previous,threadReplies));
+            setHasOlderReplies(threadReplies.length === 50); setLoadingOlderReplies(false);
+          }
+          setNotice("Connection restored. Recent messages refreshed; load earlier history as needed.");
+        }).catch(() => {
+          if (active) setNotice("Connection restored, but message history could not be refreshed.");
+        });
+      } else {
+        setNotice("Realtime connection restored.");
+      }
+    }, () => {
+      if (active) setNotice("Realtime connection interrupted. Reconnecting automatically…");
     });
+    return () => { active = false; disconnect(); };
   }, [user, workspace?.id, channel?.id, thread?.id, refreshSession]);
   const send = async (body: string, parentId?: string) => {
     if (!channel) return;
