@@ -38,9 +38,17 @@ secret. Message and direct-message fanout verify the session has not been
 revoked or expired before delivery. Logging out explicitly closes all sockets
 associated with that exact session while preserving separate device sessions.
 A synthetic integration test verifies logout isolation and TTL expiry at the
-next event. Full session management, MFA and production monitoring are not
-implemented; expired but idle sockets are closed on the next event rather
-than by an independent periodic expiration sweep.
+next event. Users can list their active sessions, revoke one, or revoke all
+others. Session listings disclose only a random public UUID, optional creation
+time, expiry time and current-session indicator, not bearer hashes or client
+identifiers. Legacy sessions retain their original authentication and receive
+stable random IDs with an unknown creation timestamp. Each revoked session's
+active WebSockets close immediately. Web and Flutter clients treat a server
+WebSocket policy-close (1008) as revocation and return to sign-in without
+persisting the invalid token; ordinary transport closures do not force logout.
+Session administration is not MFA/SSO or
+full multi-device identity governance; expired but idle sockets close on the
+next event rather than on an independent periodic expiration sweep.
 
 ## Verified snapshot implementation
 
@@ -51,7 +59,7 @@ encrypt them at rest/off-host, apply GoreeShield retention policies and test
 restoration on staging. This is not a production recovery acceptance.
 
 ## Known blockers before production
-- Password reset, MFA, external Identity SSO, device/session management.
+- Password reset, MFA, external Identity SSO and advanced device/session governance.
 - Enforced account/user/channel rate limits beyond IP login attempts.
 - Per-workspace migrations and DB concurrency/stress/restore testing.
 - Moderation, abuse controls, sanitization of future rich content and files.

@@ -14,7 +14,10 @@ All clients ───────WebSocket───┘         └── Scoped 
   APIs. Native login token is intentionally memory-only (re-authentication on
   app restart). Remote HTTP without TLS is refused.
 - Sessions: opaque tokens, hashed in the sessions table, 30-day expiry; owner
-  bootstrap and single-use, 24-hour invitation codes.
+  bootstrap and single-use, 24-hour invitation codes. Separate random UUID
+  handles allow listing and revocation of one's own sessions without revealing
+  secret digests. Existing sessions are migrated in place, with no invented
+  creation timestamp. No device fingerprints/IP/User-Agent metadata is stored in session records.
 - Channels: public by default. Private channels require explicit membership.
 - Direct messages: immutable two-member conversation pairs with unique per-workspace identity, scoped by the same channel authorization and event checks.
 - Group conversations: independently titled private channels with immutable 3–30-person memberships, selected from verified workspace users. Group and direct messages reuse the same message, reaction, thread, search, authorization and WebSocket infrastructure. Group membership editing is not yet supported.
