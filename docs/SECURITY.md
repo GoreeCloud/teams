@@ -31,6 +31,14 @@ Avoid public account bootstrapping: the **first registration is automatically
 the owner**. Place the server behind a trusted private network until initial
 setup completes.
 
+## Verified snapshot implementation
+
+The `scripts/backup.mjs` CLI uses SQLite's online backup API to capture
+committed WAL state to a private, integrity-checked, no-overwrite snapshot.
+See [BACKUPS.md](BACKUPS.md). Backups contain private messages and hashes:
+encrypt them at rest/off-host, apply GoreeShield retention policies and test
+restoration on staging. This is not a production recovery acceptance.
+
 ## Known blockers before production
 - Password reset, MFA, external Identity SSO, device/session management.
 - Enforced account/user/channel rate limits beyond IP login attempts.
