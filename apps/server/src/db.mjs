@@ -74,6 +74,15 @@ export function openDatabase(filename) {
       UNIQUE (workspace_id, member_a, member_b)
     );
     CREATE INDEX IF NOT EXISTS dms_by_workspace ON direct_conversations(workspace_id);
+    CREATE TABLE IF NOT EXISTS group_conversations (
+      channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS group_conversations_workspace ON group_conversations(workspace_id);
+
   `);
   return db;
 }
