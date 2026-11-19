@@ -58,6 +58,18 @@ See [BACKUPS.md](BACKUPS.md). Backups contain private messages and hashes:
 encrypt them at rest/off-host, apply GoreeShield retention policies and test
 restoration on staging. This is not a production recovery acceptance.
 
+## Attachment trust boundary (disabled by default)
+
+The optional attachment API rejects uploads without an explicitly injected,
+independently verified scanner adapter. Unit and integration tests use only
+synthetic verdicts. Private path-backed blobs are limited to 2 MiB with strict
+filenames, type allowlists, SHA-256 read checks and authorization on every
+download. The shipped server does not enable attachment uploads or client
+attachment controls. SQLite snapshots do not include blob storage. Wardveil
+scanner integration, GoreeShield retention/encryption controls, coordinated
+backup/restore and recovery reconciliation remain separate acceptance gates.
+See [ATTACHMENTS.md](ATTACHMENTS.md).
+
 ## Known blockers before production
 - Password reset, MFA, external Identity SSO and advanced device/session governance.
 - Enforced account/user/channel rate limits beyond IP login attempts.

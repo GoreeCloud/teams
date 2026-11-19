@@ -4,6 +4,9 @@ const app = createServer({
   databaseFile: process.env.TEAMS_DB_PATH || "./data/teams.sqlite",
   siteOrigin: process.env.TEAMS_SITE_ORIGIN || "",
   serveWeb: true,
+  // Scanning is intentionally not wired into the shipped server. Providing a
+  // private directory alone never enables uploads.
+  attachmentDirectory: process.env.TEAMS_ATTACHMENT_DIRECTORY || null,
 });
 const port = Number(process.env.PORT || 3030);
 const host = process.env.HOST || "127.0.0.1";

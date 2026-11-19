@@ -23,7 +23,10 @@ All clients ───────WebSocket───┘         └── Scoped 
 - Group conversations: independently titled private channels with immutable 3–30-person memberships, selected from verified workspace users. Group and direct messages reuse the same message, reaction, thread, search, authorization and WebSocket infrastructure. Group membership editing is not yet supported.
 - Membership directory: authenticated, workspace-scoped usernames/display names/roles for selecting teammates (up to 500 returned); eligible admins/owners already in a private channel may add existing workspace members. This grants historical channel visibility and is never automatic.
 - Messages: basic text, edit, soft delete, replies, reactions and scoped
-  substring search. No attachments, voice calls, video, presence or
+  substring search. The separate scanner-gated attachment API foundation
+  binds private UUID blobs to authorized messages but is not enabled in the
+  shipped server or in any client; see [ATTACHMENTS.md](ATTACHMENTS.md).
+  No production attachments, voice calls, video, presence or
   federation yet.
 - Message history: keyset pagination by existing message ID, ordered by
   (created_at, id), maximum 100 rows per request and default 50. Cursors must
