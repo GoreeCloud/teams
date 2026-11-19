@@ -32,6 +32,13 @@ All clients ───────WebSocket───┘         └── Scoped 
   (created_at, id), maximum 100 rows per request and default 50. Cursors must
   belong to the exact authorized channel and root/reply scope. Web and native
   clients load additional pages on request rather than unbounded fetch.
+- Personal saves: SQLite \`saved_messages\` references existing messages by
+  account, message ID and save time without copying message content. Bounded
+  (500 per account), cursor-paginated, workspace-scoped read APIs verify current
+  channel permissions on every access; private membership removal purges that
+  member's bookmarks. Save state events target only the account's sessions.
+  All three clients provide Saved for later lists distinct from channel-wide
+  pinned messages. See [SAVED_MESSAGES.md](SAVED_MESSAGES.md).
 - Unread state: the server persists per-account, per-channel monotonic
   (created_at, id) root-message cursors in SQLite. Only authorized channels,
   private conversations and group DMs are returned by workspace unread counts.

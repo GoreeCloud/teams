@@ -10,6 +10,12 @@
   event is checked against workspace membership and (for private channels)
   explicit channel membership. Private-channel member removal immediately blocks message/history access, search and event fanout; only existing channel admins/owners may remove members, not themselves or the workspace owner. The authenticated workspace member directory exposes only user IDs, usernames, display names and roles to other workspace members. One-to-one conversations have immutable two-member membership; private group conversations have fixed 3–30-person membership, and neither can be expanded through channel-management APIs. Only admins/owners may invite or add channels;
   only authors edit their messages.
+- **Personal saved-message privacy**: Each account's bookmarks consist only
+  of message IDs and save timestamps. Save and retrieval require current
+  message/channel authorization, and private membership revocation purges
+  inaccessible bookmarks. Teammates never receive save-state events.
+  The feature does not imply encrypted storage or a complete retention policy.
+  See [SAVED_MESSAGES.md](SAVED_MESSAGES.md).
 - **Unread/read privacy**: The server stores only the account, channel and
   last-read root-message timestamp/ID in SQLite. Read markers are monotonic,
   channel-authorized and visible to the account's own active sessions only;

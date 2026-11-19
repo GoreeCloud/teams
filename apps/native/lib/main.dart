@@ -143,6 +143,9 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
       members = [],
       messages = [];
   Map<String, int> unreadCounts = {};
+  Set<String> savedIds = {};
+  List<Map<String, dynamic>> savedEntries = [];
+  bool showingSaved = false, hasOlderSaved = false, loadingSaved = false;
   WebSocket? socket;
   Timer? reconnectTimer;
   int socketGeneration = 0;
@@ -162,7 +165,10 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
     appIsForeground = state == AppLifecycleState.resumed;
     if (appIsForeground && api?.accessToken != null) {
       unawaited(refreshUnread());
-      if (threadId == null && channelId != null && messages.isNotEmpty) {
+      if (!showingSaved &&
+          threadId == null &&
+          channelId != null &&
+          messages.isNotEmpty) {
         unawaited(acknowledgeRead(channelId!, messages.last['id'] as String));
       }
     }
@@ -263,6 +269,11 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
           workspaces.isNotEmpty ? workspaces.first['id'] as String : null;
       workspaceName =
           workspaces.isNotEmpty ? workspaces.first['name'] as String : null;
+      showingSaved = false;
+      savedIds = {};
+      savedEntries = [];
+      hasOlderSaved = false;
+      loadingSaved = false;
     });
     await loadChannels();
   }
@@ -275,6 +286,7 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
       api!.request('/workspaces/$requestedWorkspace/dms'),
       api!.request('/workspaces/$requestedWorkspace/members'),
       api!.request('/workspaces/$requestedWorkspace/unread'),
+      api!.request('/workspaces/$requestedWorkspace/saved-ids'),
     ]);
     if (!mounted || requestedWorkspace != workspaceId) return;
     setState(() {
@@ -286,6 +298,7 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
           (entry as Map)['channelId'] as String:
               (entry['count'] as num).toInt(),
       };
+      savedIds = (responses[4] as List).cast<String>().toSet();
       final available = [...channels, ...dms];
       final selected = available.where((ch) => ch['id'] == channelId).toList();
       final next = selected.isNotEmpty
@@ -319,6 +332,88 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
       // Keep last known badges on a transient network error. Server is authoritative.
     }
   }
+
+  Future<void> refreshSavedIds() async {
+    final requestedWorkspace = workspaceId;
+    if (requestedWorkspace == null || api?.accessToken == null) return;
+    try {
+      final result = await api!
+          .request('/workspaces/$requestedWorkspace/saved-ids') as List;
+      if (mounted && requestedWorkspace == workspaceId) {
+        setState(() => savedIds = result.cast<String>().toSet());
+      }
+    } catch (_) {
+      // Preserve known markers on transient errors.
+    }
+  }
+
+  Future<void> loadSavedMessages({bool older = false}) async {
+    final requestedWorkspace = workspaceId;
+    if (requestedWorkspace == null || loadingSaved) return;
+    if (older && (!hasOlderSaved || savedEntries.isEmpty)) return;
+    final cursor = older
+        ? '?before=${Uri.encodeComponent((savedEntries.last['message'] as Map)['id'] as String)}'
+        : '';
+    setState(() => loadingSaved = true);
+    try {
+      final result = await api!
+          .request('/workspaces/$requestedWorkspace/saved$cursor') as List;
+      if (!mounted || requestedWorkspace != workspaceId) return;
+      final page = result.cast<Map<String, dynamic>>();
+      setState(() {
+        if (older) {
+          final known =
+              savedEntries.map((m) => (m['message'] as Map)['id']).toSet();
+          savedEntries = [
+            ...savedEntries,
+            ...page.where((m) => !known.contains((m['message'] as Map)['id']))
+          ];
+        } else {
+          savedEntries = page;
+        }
+        hasOlderSaved = page.length == 50;
+      });
+    } catch (e) {
+      if (mounted && requestedWorkspace == workspaceId) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted && requestedWorkspace == workspaceId) {
+        setState(() => loadingSaved = false);
+      }
+    }
+  }
+
+  Future<void> openSavedMessages() async {
+    if (workspaceId == null) return;
+    setState(() {
+      showingSaved = true;
+      threadId = null;
+      threadTitle = null;
+    });
+    unawaited(refreshSavedIds());
+    await loadSavedMessages();
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  Future<void> toggleSavedMessage(Map<String, dynamic> message) =>
+      guarded(() async {
+        if (message['deletedAt'] != null) return;
+        final id = message['id'] as String;
+        final wasSaved = savedIds.contains(id);
+        await api!.request('/messages/$id/save',
+            method: wasSaved ? 'DELETE' : 'POST');
+        if (!mounted) return;
+        setState(() {
+          if (wasSaved) {
+            savedIds.remove(id);
+          } else {
+            savedIds.add(id);
+          }
+        });
+        if (showingSaved) unawaited(loadSavedMessages());
+      });
 
   Future<void> acknowledgeRead(String readChannel, String messageId) async {
     try {
@@ -375,7 +470,10 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
         messages = page;
         hasOlderMessages = page.length == 50;
       });
-      if (requestedThread == null && page.isNotEmpty && appIsForeground) {
+      if (requestedThread == null &&
+          page.isNotEmpty &&
+          appIsForeground &&
+          !showingSaved) {
         unawaited(acknowledgeRead(requestedChannel, page.last['id'] as String));
       }
     }
@@ -453,6 +551,8 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
           return;
         }
         socket = live;
+        unawaited(refreshSavedIds());
+        if (showingSaved) unawaited(loadSavedMessages());
         live.listen((data) {
           try {
             final event = jsonDecode(data as String) as Map;
@@ -500,7 +600,35 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                   messages = [];
                 }
               });
+              unawaited(refreshSavedIds());
+              if (showingSaved) unawaited(loadSavedMessages());
               if (wasCurrent) loadChannels();
+              return;
+            }
+            if (event['type'] == 'message.updated' &&
+                event['message'] is Map &&
+                (event['message'] as Map)['deletedAt'] != null &&
+                mounted) {
+              final deletedId = (event['message'] as Map)['id'];
+              setState(() {
+                savedIds.remove(deletedId);
+                savedEntries.removeWhere(
+                    (item) => (item['message'] as Map)['id'] == deletedId);
+              });
+            }
+            if (event['type'] == 'saved.changed' &&
+                event['workspaceId'] == workspaceId &&
+                event['messageId'] is String &&
+                mounted) {
+              final id = event['messageId'] as String;
+              setState(() {
+                if (event['saved'] == true) {
+                  savedIds.add(id);
+                } else {
+                  savedIds.remove(id);
+                }
+              });
+              if (showingSaved) unawaited(loadSavedMessages());
               return;
             }
             if (event['type'] == 'unread.updated' &&
@@ -516,7 +644,8 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
               if (event['type'] == 'message.created' &&
                   event['channelId'] == channelId &&
                   threadId == null &&
-                  appIsForeground) {
+                  appIsForeground &&
+                  !showingSaved) {
                 unawaited(acknowledgeRead(
                     event['channelId'] as String, updated['id'] as String));
               } else {
@@ -572,6 +701,7 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
       channelId = channel['id'] as String;
       channelName = (channel['peerName'] ?? channel['name']) as String;
       channelKind = channel['kind'] as String?;
+      showingSaved = false;
       threadId = null;
       threadTitle = null;
       messages = [];
@@ -664,6 +794,7 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
       workspaces.any((w) => w['id'] == workspaceId && w['role'] != 'member');
 
   bool get canAddCurrentChannelMember =>
+      !showingSaved &&
       canManageCurrentWorkspace &&
       channelKind != 'dm' &&
       channelKind != 'group_dm' &&
@@ -1202,6 +1333,9 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
       members = [];
       messages = [];
       unreadCounts = {};
+      savedIds = {};
+      savedEntries = [];
+      showingSaved = false;
       workspaceId = null;
       channelId = null;
       channelKind = null;
@@ -1483,6 +1617,11 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                 title: const Text('Invite a teammate'),
                 onTap: createInvite),
           ListTile(
+              leading: const Icon(Icons.bookmark_outline),
+              selected: showingSaved,
+              title: const Text('Saved for later'),
+              onTap: openSavedMessages),
+          ListTile(
               leading: const Icon(Icons.devices_other_outlined),
               title: const Text('Account sessions'),
               onTap: manageSessions),
@@ -1536,6 +1675,7 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                                 if (action == 'react') reactTo(msg);
                                 if (action == 'edit') editMessage(msg);
                                 if (action == 'delete') deleteMessage(msg);
+                                if (action == 'save') toggleSavedMessage(msg);
                               },
                               itemBuilder: (context) => [
                                 if (threadId == null)
@@ -1545,6 +1685,12 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                                 if (!deleted)
                                   const PopupMenuItem(
                                       value: 'react', child: Text('React 👍')),
+                                if (!deleted)
+                                  PopupMenuItem(
+                                      value: 'save',
+                                      child: Text(savedIds.contains(msg['id'])
+                                          ? 'Remove saved message'
+                                          : 'Save for later')),
                                 if (mine && !deleted)
                                   const PopupMenuItem(
                                       value: 'edit', child: Text('Edit')),
@@ -1574,6 +1720,114 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                   ],
                 ))));
   }
+
+  Widget savedPanel() => Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+          child: Row(children: [
+            const Icon(Icons.bookmark_outline),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Text('Personal saved messages',
+                    style: Theme.of(context).textTheme.titleMedium)),
+            IconButton(
+              onPressed: loadingSaved ? null : () => loadSavedMessages(),
+              icon: const Icon(Icons.refresh_outlined),
+              tooltip: 'Refresh saved messages',
+            ),
+          ]),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 18),
+          child: Text(
+              'Only you can view these bookmarks. Losing conversation access also hides its saved messages.'),
+        ),
+        if (loadingSaved) const LinearProgressIndicator(),
+        Expanded(
+          child: savedEntries.isEmpty
+              ? Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.bookmark_border,
+                      size: 52, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(height: 14),
+                  Text('No saved messages yet',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  const Text(
+                      'Save a message from any conversation to find it here.'),
+                ]))
+              : ListView.builder(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  itemCount: savedEntries.length + (hasOlderSaved ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index == savedEntries.length) {
+                      return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: OutlinedButton(
+                            onPressed: loadingSaved
+                                ? null
+                                : () => loadSavedMessages(older: true),
+                            child: const Text('Load earlier saved messages'),
+                          ));
+                    }
+                    final item = savedEntries[index];
+                    final message =
+                        Map<String, dynamic>.from(item['message'] as Map);
+                    final channelName =
+                        item['channelName'] as String? ?? 'Conversation';
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(channelName,
+                                  style:
+                                      Theme.of(context).textTheme.labelMedium),
+                              const SizedBox(height: 8),
+                              Text(message['author'] as String? ?? 'Unknown',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 6),
+                              Text(message['body'] as String? ?? ''),
+                              const SizedBox(height: 12),
+                              Wrap(spacing: 8, children: [
+                                TextButton.icon(
+                                  onPressed: () {
+                                    final matches = [...channels, ...dms]
+                                        .where((ch) =>
+                                            ch['id'] == message['channelId'])
+                                        .toList();
+                                    if (matches.isNotEmpty) {
+                                      chooseChannel(matches.first);
+                                    } else {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text(
+                                                  'Conversation is no longer accessible')));
+                                      unawaited(loadSavedMessages());
+                                    }
+                                  },
+                                  icon: const Icon(Icons.forum_outlined),
+                                  label: const Text('Open conversation'),
+                                ),
+                                TextButton.icon(
+                                  onPressed: busy
+                                      ? null
+                                      : () => toggleSavedMessage(message),
+                                  icon: const Icon(
+                                      Icons.bookmark_remove_outlined),
+                                  label: const Text('Remove saved'),
+                                ),
+                              ]),
+                            ]),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ]);
 
   Widget chatPanel() => Column(children: [
         if (threadId != null)
@@ -1654,17 +1908,23 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
       appBar: currentUserId == null
           ? null
           : AppBar(
-              title: Text(threadId != null
-                  ? 'Thread'
-                  : channelKind == 'dm' || channelKind == 'group_dm'
-                      ? (channelName ?? 'Conversation')
-                      : '#${channelName ?? 'Teams'}'),
+              title: Text(showingSaved
+                  ? 'Saved for later'
+                  : threadId != null
+                      ? 'Thread'
+                      : channelKind == 'dm' || channelKind == 'group_dm'
+                          ? (channelName ?? 'Conversation')
+                          : '#${channelName ?? 'Teams'}'),
               actions: [
                   if (canAddCurrentChannelMember)
                     IconButton(
                         onPressed: manageChannelMembers,
                         tooltip: 'Manage private channel members',
                         icon: const Icon(Icons.person_add_alt_outlined)),
+                  IconButton(
+                      onPressed: openSavedMessages,
+                      tooltip: 'Saved messages',
+                      icon: const Icon(Icons.bookmark_outline)),
                   IconButton(
                       onPressed: searchMessages,
                       tooltip: 'Search messages',
@@ -1685,10 +1945,13 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                   if (wide) channelSidebar(),
                   if (wide) const VerticalDivider(width: 1),
                   Expanded(
-                      child: channelId == null
-                          ? const Center(
-                              child: Text('Choose a channel to get started'))
-                          : chatPanel()),
+                      child: showingSaved
+                          ? savedPanel()
+                          : channelId == null
+                              ? const Center(
+                                  child:
+                                      Text('Choose a channel to get started'))
+                              : chatPanel()),
                 ])),
     );
   }

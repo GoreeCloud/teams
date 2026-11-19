@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
-import { api, connectEvents, reconcileRecentMessages, type Channel, type Event, type Member, type Message, type SessionInfo, type UnreadInfo, type User, type Workspace } from "./api";
+import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Bookmark, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
+import { api, connectEvents, reconcileRecentMessages, type Channel, type Event, type Member, type Message, type SessionInfo, type SavedEntry, type UnreadInfo, type User, type Workspace } from "./api";
 
 const shortTime = (value: string) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const errorMessage = (err: unknown) => err instanceof Error ? err.message : "Something went wrong";
@@ -47,9 +47,10 @@ function Welcome({ bootstrap, onLogin }: { bootstrap: boolean; onLogin: () => vo
     </aside>
   </main>;
 }
-function MessageRow({ message, me, onReply, onReaction, onEdit, onDelete }: {
+function MessageRow({ message, me, onReply, onReaction, onEdit, onDelete, onSave, saved, saving }: {
   message: Message; me: User; onReply: (message: Message) => void; onReaction: (message: Message, emoji: string) => void;
   onEdit: (message: Message) => void; onDelete: (message: Message) => void;
+  onSave: (message: Message) => void; saved: boolean; saving: boolean;
 }) {
   return <article className="message" aria-label={"Message from " + message.author}>
     <Avatar name={message.author}/>
@@ -60,6 +61,7 @@ function MessageRow({ message, me, onReply, onReaction, onEdit, onDelete }: {
       </div>
     </div>
     {!message.deletedAt && <div className="message-actions">
+      <button title={saved ? "Remove from saved" : "Save for later"} aria-label={saved ? "Remove saved message" : "Save message for later"} aria-pressed={saved} disabled={saving} onClick={() => onSave(message)}><Bookmark size={17} fill={saved ? "currentColor" : "none"}/></button>
       <button title="React with thumbs up" aria-label="React with thumbs up" onClick={() => onReaction(message, "👍")}><Smile size={17}/></button>
       {!message.parentId && <button title="Reply in thread" aria-label="Reply in thread" onClick={() => onReply(message)}><Reply size={17}/></button>}
       {message.authorId === me.id && <button title="Edit message" aria-label="Edit message" onClick={() => onEdit(message)}><Pencil size={16}/></button>}
@@ -100,6 +102,12 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Message[]|null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<string,number>>({});
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [savedEntries, setSavedEntries] = useState<SavedEntry[]>([]);
+  const [showSaved, setShowSaved] = useState(false);
+  const [hasOlderSaved, setHasOlderSaved] = useState(false);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savingMessageId, setSavingMessageId] = useState<string|null>(null);
   const [notice, setNotice] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
@@ -123,7 +131,9 @@ export default function App() {
   const currentWorkspaceId = useRef<string|null>(null);
   const unreadRequestGeneration = useRef(0);
   const searchIsOpen = useRef(false);
-  searchIsOpen.current = searchResults !== null;
+  const savedVisible = useRef(false);
+  savedVisible.current = showSaved;
+  searchIsOpen.current = searchResults !== null || showSaved;
   currentChannelId.current = channel?.id || null;
   currentWorkspaceId.current = workspace?.id || null;
   const conversationVisible = () => document.visibilityState === "visible" && document.hasFocus();
@@ -146,6 +156,73 @@ export default function App() {
       })
       .catch(() => { /* Never advertise read success when the server rejected it. */ });
   };
+  const refreshSavedIds = (workspaceId: string) => {
+    void api<string[]>("/workspaces/" + workspaceId + "/saved-ids")
+      .then(ids => {
+        if (currentWorkspaceId.current === workspaceId) setSavedIds(new Set(ids));
+      }).catch(() => { /* Preserve the prior state across transient transport errors. */ });
+  };
+  const refreshSavedEntries = async (workspaceId: string) => {
+    setSavedLoading(true);
+    try {
+      const list = await api<SavedEntry[]>("/workspaces/" + workspaceId + "/saved");
+      if (currentWorkspaceId.current === workspaceId) {
+        setSavedEntries(list); setHasOlderSaved(list.length === 50);
+      }
+    } catch (err) {
+      if (currentWorkspaceId.current === workspaceId) setNotice(errorMessage(err));
+    } finally {
+      if (currentWorkspaceId.current === workspaceId) setSavedLoading(false);
+    }
+  };
+  const showSavedMessages = () => {
+    if (!workspace) return;
+    setShowSaved(true); setSidebarOpen(false); setSearchResults(null); setThread(null);
+    void refreshSavedEntries(workspace.id);
+    refreshSavedIds(workspace.id);
+  };
+  const loadOlderSaved = async () => {
+    if (!workspace || !hasOlderSaved || savedLoading || savedEntries.length === 0) return;
+    const id = workspace.id, cursor = savedEntries[savedEntries.length-1].message.id;
+    setSavedLoading(true);
+    try {
+      const older = await api<SavedEntry[]>("/workspaces/" + id + "/saved?before=" + encodeURIComponent(cursor));
+      if (currentWorkspaceId.current === id) {
+        setSavedEntries(previous => [...previous,
+          ...older.filter(item => !previous.some(p => p.message.id === item.message.id))]);
+        setHasOlderSaved(older.length === 50);
+      }
+    } catch (err) {
+      if (currentWorkspaceId.current === id) setNotice(errorMessage(err));
+    } finally {
+      if (currentWorkspaceId.current === id) setSavedLoading(false);
+    }
+  };
+  const toggleSaved = async (message: Message) => {
+    if (!workspace || savingMessageId || message.deletedAt) return;
+    const id = workspace.id, isSaved = savedIds.has(message.id);
+    setSavingMessageId(message.id);
+    try {
+      await api("/messages/" + message.id + "/save", isSaved ? "DELETE" : "POST");
+      if (currentWorkspaceId.current !== id) return;
+      setSavedIds(previous => {
+        const next = new Set(previous);
+        if (isSaved) next.delete(message.id); else next.add(message.id);
+        return next;
+      });
+      if (savedVisible.current) void refreshSavedEntries(id);
+    } catch (err) { setNotice(errorMessage(err)); }
+    finally { setSavingMessageId(null); }
+  };
+  const openSavedConversation = (saved: SavedEntry) => {
+    const target = [...channels,...dms].find(ch => ch.id === saved.message.channelId);
+    if (!target) {
+      setNotice("This conversation is no longer available. Your saved list will be refreshed.");
+      if (workspace) void refreshSavedEntries(workspace.id);
+      return;
+    }
+    setChannel(target); setThread(null); setSearchResults(null); setShowSaved(false);
+  };
   const refreshSession = useCallback(async () => {
     try { const r = await api<{user:User}>("/me"); setUser(r.user); }
     catch { setUser(null); const r = await api<{bootstrapAvailable:boolean}>("/config"); setBootstrap(r.bootstrapAvailable); }
@@ -161,6 +238,8 @@ export default function App() {
     let active = true;
     setChannel(null); setChannels([]); setDms([]); setMembers([]); setSearchResults(null);
     setUnreadCounts({}); refreshUnread(workspace.id);
+    setSavedIds(new Set()); setSavedEntries([]); setHasOlderSaved(false);
+    setShowSaved(false); refreshSavedIds(workspace.id);
     void Promise.all([
       api<Channel[]>("/workspaces/" + workspace.id + "/channels"),
       api<Channel[]>("/workspaces/" + workspace.id + "/dms"),
@@ -206,10 +285,10 @@ export default function App() {
     };
   }, [channel?.id, messages[messages.length-1]?.id]);
   useEffect(() => {
-    if (searchResults === null && channel && messages.length && conversationVisible()) {
+    if (searchResults === null && !showSaved && channel && messages.length && conversationVisible()) {
       acknowledgeRead(channel.id, messages[messages.length-1].id);
     }
-  }, [searchResults]);
+  }, [searchResults, showSaved]);
   useEffect(() => {
     let active = true;
     setReplies([]); setHasOlderReplies(false); setLoadingOlderReplies(false);
@@ -276,6 +355,16 @@ export default function App() {
     let active = true;
     const disconnect = connectEvents((event: Event) => {
       const activeWorkspaceId = workspace?.id;
+      if (event.type === "saved.changed" && activeWorkspaceId && event.workspaceId === activeWorkspaceId && event.messageId) {
+        const messageId = event.messageId;
+        setSavedIds(previous => {
+          const next = new Set(previous);
+          if (event.saved) next.add(messageId); else next.delete(messageId);
+          return next;
+        });
+        if (savedVisible.current) void refreshSavedEntries(activeWorkspaceId);
+        return;
+      }
       if (event.type === "unread.updated" && activeWorkspaceId && event.workspaceId === activeWorkspaceId) {
         refreshUnread(activeWorkspaceId);
         return;
@@ -301,6 +390,8 @@ export default function App() {
         const removedId = event.channelId;
         setChannels(previous => previous.filter(ch => ch.id !== removedId));
         setUnreadCounts(previous => { const next = {...previous}; delete next[removedId]; return next; });
+        setSavedEntries(previous => previous.filter(entry => entry.message.channelId !== removedId));
+        if (activeWorkspaceId) refreshSavedIds(activeWorkspaceId);
         if (currentChannelId.current === removedId) {
           setChannel(null);
           setThread(null); setSearchResults(null); setShowAddMember(false); setChannelMembers([]);
@@ -313,6 +404,11 @@ export default function App() {
           .then(data => { if (currentChannelId.current === id) setChannelMembers(data); })
           .catch(() => {});
         return;
+      }
+      if (event.type === "message.updated" && event.message?.deletedAt) {
+        const deletedId = event.message.id;
+        setSavedIds(previous => { const next = new Set(previous); next.delete(deletedId); return next; });
+        setSavedEntries(previous => previous.filter(item => item.message.id !== deletedId));
       }
       if (!event.message || event.channelId !== channel?.id) return;
       const m = event.message;
@@ -333,6 +429,8 @@ export default function App() {
       const scopeId = workspace?.id;
       if (scopeId) {
         refreshUnread(scopeId);
+        refreshSavedIds(scopeId);
+        if (savedVisible.current) void refreshSavedEntries(scopeId);
         void Promise.all([
           api<Channel[]>("/workspaces/" + scopeId + "/channels"),
           api<Channel[]>("/workspaces/" + scopeId + "/dms"),
@@ -398,11 +496,18 @@ export default function App() {
   };
   const remove = async (m: Message) => {
     if (!window.confirm("Delete this message?")) return;
-    try { const updated = await api<Message>("/messages/" + m.id, "DELETE"); if (m.parentId) setReplies(prev => prev.map(x => x.id === m.id ? updated : x)); else setMessages(prev => prev.map(x => x.id === m.id ? updated : x)); }
+    try {
+      const updated = await api<Message>("/messages/" + m.id, "DELETE");
+      if (m.parentId) setReplies(prev => prev.map(x => x.id === m.id ? updated : x));
+      else setMessages(prev => prev.map(x => x.id === m.id ? updated : x));
+      setSavedIds(previous => { const next = new Set(previous); next.delete(m.id); return next; });
+      if (workspace && savedVisible.current) void refreshSavedEntries(workspace.id);
+    }
     catch (err) { setNotice(errorMessage(err)); }
   };
   const doSearch = async (e: React.FormEvent) => {
     e.preventDefault(); if (!workspace || search.trim().length < 2) return;
+    setShowSaved(false);
     try { setSearchResults(await api<Message[]>("/workspaces/" + workspace.id + "/search?q=" + encodeURIComponent(search.trim()))); }
     catch (err) { setNotice(errorMessage(err)); }
   };
@@ -510,8 +615,9 @@ export default function App() {
   if (!user) return <Welcome bootstrap={bootstrap} onLogin={refreshSession}/>;
   return <div className="shell">
     <nav className="activity-rail" aria-label="Main navigation"><div className="rail-mark" title="GoreeCloud Teams">✳</div>
-      <button className="rail-action active" aria-label="Messages"><MessageCircle size={22}/><span>Messages</span></button>
-      <button className="rail-action" aria-label="Search messages" onClick={() => document.getElementById("search-input")?.focus()}><Search size={22}/><span>Search</span></button>
+      <button className={"rail-action " + (!showSaved ? "active" : "")} aria-label="Messages" onClick={() => setShowSaved(false)}><MessageCircle size={22}/><span>Messages</span></button>
+      <button className={"rail-action " + (showSaved ? "active" : "")} aria-label="Saved messages" onClick={showSavedMessages}><Bookmark size={22}/><span>Saved</span></button>
+      <button className="rail-action" aria-label="Search messages" onClick={() => { setShowSaved(false); document.getElementById("search-input")?.focus(); }}><Search size={22}/><span>Search</span></button>
       <div className="rail-space"/>
       <button className="rail-action" title="Sign out" aria-label="Sign out" onClick={() => void logout()}><LogOut size={21}/><span>Sign out</span></button>
       <Avatar name={user.displayName} size="small"/>
@@ -522,7 +628,7 @@ export default function App() {
       <div className="sidebar-scroll"><div className="sidebar-label">YOUR SPACE <MoreHorizontal size={16}/></div>
         <div className="section-head"><span>Channels</span>{workspace && workspace.role !== "member" && <button aria-label="Create channel" onClick={() => setShowNewChannel(true)}><Plus size={18}/></button>}</div>
         <div className="channel-list">{channels.map(ch => <button key={ch.id} className={"channel-link " + (channel?.id === ch.id ? "selected" : "")}
-          onClick={() => { setChannel(ch); setSearchResults(null); setSidebarOpen(false); }}>{ch.isPrivate ? <LockKeyhole size={17}/> : <Hash size={18}/>} <span>{ch.name}</span>
+          onClick={() => { setShowSaved(false); setChannel(ch); setSearchResults(null); setSidebarOpen(false); }}>{ch.isPrivate ? <LockKeyhole size={17}/> : <Hash size={18}/>} <span>{ch.name}</span>
           {!!unreadCounts[ch.id] && <span className="unread-count" aria-label={unreadCounts[ch.id] + " unread messages"}>{unreadCounts[ch.id] > 99 ? "99+" : unreadCounts[ch.id]}</span>}
         </button>)}</div>
         <div className="section-head dm-section"><span>Conversations</span><div className="conversation-actions">
@@ -530,13 +636,14 @@ export default function App() {
           <button aria-label="Start group conversation" title="New group conversation" onClick={() => setShowNewGroup(true)}><Users size={18}/></button>
         </div></div>
         <div className="channel-list">{dms.map(dm => <button key={dm.id} className={"channel-link " + (channel?.id === dm.id ? "selected" : "")}
-          onClick={() => { setChannel(dm); setThread(null); setSearchResults(null); setSidebarOpen(false); }}>
+          onClick={() => { setShowSaved(false); setChannel(dm); setThread(null); setSearchResults(null); setSidebarOpen(false); }}>
           {dm.kind === "group_dm" ? <Users size={17}/> : <MessageCircle size={17}/>} <span>{dm.peerName || dm.name}</span>
           {!!unreadCounts[dm.id] && <span className="unread-count" aria-label={unreadCounts[dm.id] + " unread messages"}>{unreadCounts[dm.id] > 99 ? "99+" : unreadCounts[dm.id]}</span>}
         </button>)}
           {dms.length === 0 && <p className="dm-empty">Start a private one-to-one or group conversation.</p>}
         </div>
         <div className="sidebar-label second-label">WORKSPACE TOOLS</div>
+        <button className="tool-link" aria-pressed={showSaved} onClick={showSavedMessages}><Bookmark size={18}/> Saved for later</button>
         {workspace?.role !== "member" && <button className="tool-link" onClick={() => { setShowInvite(true); setInviteCode(""); }}><UserPlus size={18}/> Invite a teammate</button>}
         <button className="tool-link" onClick={() => void openSessions()}><ShieldCheck size={18}/> Manage sessions</button>
       </div>
@@ -544,14 +651,41 @@ export default function App() {
     </aside>
     <main className="main-panel">
       <header className="topbar"><button className="mobile-menu" aria-label="Open sidebar" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button>
-        <div className="breadcrumb"><strong>{workspace?.name || "Workspace"}</strong><span>/</span><span>{searchResults ? "Search" : channel?.name || "Choose a channel"}</span></div>
+        <div className="breadcrumb"><strong>{workspace?.name || "Workspace"}</strong><span>/</span><span>{showSaved ? "Saved messages" : searchResults ? "Search" : channel?.name || "Choose a channel"}</span></div>
         <form className="searchbox" onSubmit={doSearch}><Search size={17}/><input id="search-input" aria-label="Search messages" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search conversations…" minLength={2}/><kbd>↵</kbd></form>
         <button className="topbar-icon" aria-label="Clear search" onClick={() => { setSearch(""); setSearchResults(null); }}><X size={18}/></button>
         <Avatar name={user.displayName} size="small"/>
       </header>
       {notice && <div className="notice" role="alert">{notice}<button onClick={() => setNotice("")} aria-label="Dismiss notice"><X size={16}/></button></div>}
-      {searchResults ? <div className="content"><header className="channel-header"><button className="back-button" onClick={() => setSearchResults(null)}><ArrowLeft size={20}/> Back to channel</button><h1>Search results</h1><p>{searchResults.length} messages found for “{search}”</p></header>
-        <div className="message-scroll">{searchResults.length ? searchResults.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>) : <p className="empty">Nothing matched your search.</p>}</div></div>
+      {showSaved ? <div className="content saved-view">
+        <header className="channel-header"><div className="channel-heading">
+          <div className="channel-identity"><div className="channel-heading-icon"><Bookmark size={24}/></div>
+            <div><h1>Saved for later</h1><p>Only you can see your saved messages. Removing channel access removes them from this view.</p></div>
+          </div>
+          <button className="add-channel-member" onClick={() => { if (workspace) void refreshSavedEntries(workspace.id); }} disabled={savedLoading}>Refresh</button>
+        </div></header>
+        <div className="message-scroll saved-list" aria-label="Your saved messages">
+          {savedEntries.length === 0 && <div className="saved-empty"><Bookmark size={38}/><h2>No saved messages yet</h2>
+            <p>Save messages from conversations to find them here later.</p></div>}
+          {savedEntries.map(item => <article className="saved-card" key={item.message.id}>
+            <div className="saved-card-meta"><span>{[...channels,...dms].find(ch => ch.id === item.message.channelId)?.peerName ||
+              [...channels,...dms].find(ch => ch.id === item.message.channelId)?.name || item.channelName}</span>
+              <span>Saved {new Date(item.savedAt).toLocaleDateString()}</span></div>
+            <strong>{item.message.author}</strong>
+            <p>{item.message.body}</p>
+            <div className="saved-card-actions">
+              <button onClick={() => openSavedConversation(item)}>Open conversation</button>
+              <button disabled={savingMessageId === item.message.id} onClick={() => void toggleSaved(item.message)}>
+                <Bookmark size={16} fill="currentColor"/> Remove saved
+              </button>
+            </div>
+          </article>)}
+          {hasOlderSaved && <button className="load-older" type="button" disabled={savedLoading}
+            onClick={() => void loadOlderSaved()}>{savedLoading ? "Loading saved messages…" : "Load more saved messages"}</button>}
+          {savedLoading && <p className="muted" role="status">Updating saved messages…</p>}
+        </div>
+      </div> : searchResults ? <div className="content"><header className="channel-header"><button className="back-button" onClick={() => setSearchResults(null)}><ArrowLeft size={20}/> Back to channel</button><h1>Search results</h1><p>{searchResults.length} messages found for “{search}”</p></header>
+        <div className="message-scroll">{searchResults.length ? searchResults.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(m.id)} saving={savingMessageId === m.id}/>) : <p className="empty">Nothing matched your search.</p>}</div></div>
       : channel ? <div className="content">
         <header className="channel-header"><div className="channel-heading"><div className="channel-identity"><div className="channel-heading-icon">{channel.kind === "group_dm" ? <Users size={24}/> : channel.kind === "dm" ? <MessageCircle size={24}/> : channel.isPrivate ? <LockKeyhole size={24}/> : <Hash size={26}/>}</div>
           <div><h1>{channel.kind === "dm" ? channel.peerName || channel.name : channel.name}</h1><p>{channel.kind === "group_dm" ? "Private group conversation · fixed membership" : channel.kind === "dm" ? "Private conversation · visible only to participants" : channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members">
@@ -562,18 +696,18 @@ export default function App() {
         <div className="message-scroll" ref={scrollViewport} role="log" aria-label={"Messages in " + channel.name}>
           {hasOlder && <button className="load-older" type="button" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</button>}
           <div className="channel-intro"><span className="intro-icon">{channel.kind === "group_dm" ? <Users size={26}/> : channel.kind === "dm" ? <MessageCircle size={26}/> : <Hash size={26}/>}</span><h2>{channel.kind === "group_dm" ? channel.name : channel.kind === "dm" ? "Conversation with " + (channel.peerName || channel.name) : "Welcome to #" + channel.name}</h2><p>{channel.kind === "group_dm" ? "Only the invited group members can see these messages. Group membership is fixed in this development preview." : channel.kind === "dm" ? "Only you and this teammate can see this conversation. Messages are stored on your Teams server." : "This is the beginning of the conversation. Share updates, ask questions, and keep moving forward together."}</p></div>
-          {messages.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>)}
+          {messages.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(m.id)} saving={savingMessageId === m.id}/>)}
           <div ref={scrollAnchor} />
         </div>
         <div className="composer-wrap"><Composer key={channel.id} channelName={channel.peerName || channel.name} direct={channel.kind === "dm" || channel.kind === "group_dm"} onSend={body => send(body)}/></div>
       </div> : <div className="empty-workspace"><Sparkles size={35}/><h2>Choose a channel</h2><p>Your conversations will appear here.</p></div>}
     </main>
-    {thread && <aside className="thread-panel" aria-label="Thread">
+    {thread && !showSaved && <aside className="thread-panel" aria-label="Thread">
       <header><strong>Thread</strong><button aria-label="Close thread" onClick={() => setThread(null)}><X size={20}/></button></header>
-      <div className="thread-scroll" ref={threadViewport}><MessageRow message={thread} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove}/>
+      <div className="thread-scroll" ref={threadViewport}><MessageRow message={thread} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(thread.id)} saving={savingMessageId === thread.id}/>
         <div className="replies-caption">{replies.length} loaded {replies.length === 1 ? "reply" : "replies"}</div>
         {hasOlderReplies && <button className="load-older" type="button" disabled={loadingOlderReplies} onClick={() => void loadOlderReplies()}>{loadingOlderReplies ? "Loading earlier replies…" : "Load earlier replies"}</button>}
-        {replies.map(m => <MessageRow key={m.id} message={m} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove}/>)}
+        {replies.map(m => <MessageRow key={m.id} message={m} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(m.id)} saving={savingMessageId === m.id}/>)}
       </div><div className="composer-wrap"><Composer key={thread.id} channelName={channel?.name || ""} parent onSend={body => send(body, thread.id)}/></div></aside>}
     {showSessions && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowSessions(false); }}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="Your active sessions">

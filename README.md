@@ -16,6 +16,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Permission-checked, cursor-paginated message and reply history in all clients
 - Per-conversation unread badges with private, cross-device read cursors and foreground-aware acknowledgement
+- Account-private Saved for later bookmarks with paginated lists in web, Linux and Android
 - Workspace-scoped search, authenticated WebSocket event fanout
 - Reconnecting web real-time transport with recent-history catch-up after interruptions
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
