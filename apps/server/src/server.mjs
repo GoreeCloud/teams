@@ -298,12 +298,32 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
   app.get("/api/channels/:channelId/messages", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);
     if (!ch) return;
-    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
+    const rawLimit = req.query?.limit;
+    const limit = rawLimit === undefined ? 50 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return error(reply, 400, "Message page limit must be 1–100");
+    }
     const parentId = typeof req.query?.parentId === "string" ? req.query.parentId : null;
-    if (parentId && messageById(parentId)?.channel_id !== ch.id) return error(reply, 404, "Thread not found");
+    if (parentId && (messageById(parentId)?.channel_id !== ch.id || messageById(parentId)?.parent_id)) {
+      return error(reply, 404, "Thread not found");
+    }
+    const beforeId = req.query?.before;
+    if (beforeId !== undefined && (typeof beforeId !== "string" || !/^[0-9a-f-]{36}$/i.test(beforeId))) {
+      return error(reply, 400, "Invalid message cursor");
+    }
+    const before = beforeId ? messageById(beforeId) : null;
+    // Cursor must belong to this exact channel AND thread; otherwise an ID
+    // from a different conversation could be used to probe private history.
+    if (beforeId && (!before || before.channel_id !== ch.id || before.parent_id !== parentId)) {
+      return error(reply, 404, "Message cursor not found");
+    }
+    const cursorTime = before?.created_at || null;
     return db.prepare(`SELECT * FROM messages WHERE channel_id=? AND
       ((? IS NULL AND parent_id IS NULL) OR parent_id=?)
-      ORDER BY created_at DESC,id DESC LIMIT ?`).all(ch.id, parentId, parentId, limit).reverse().map(publicMessage);
+      AND (? IS NULL OR created_at < ? OR (created_at = ? AND id < ?))
+      ORDER BY created_at DESC,id DESC LIMIT ?`)
+      .all(ch.id, parentId, parentId, cursorTime, cursorTime, cursorTime, before?.id || null, limit)
+      .reverse().map(publicMessage);
   });
   app.post("/api/channels/:channelId/messages", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);
