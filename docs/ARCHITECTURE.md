@@ -13,6 +13,10 @@ All clients ───────WebSocket───┘         └── Scoped 
 - Native apps: one Flutter Linux and Android source, real platform runners and
   APIs. Native login token is intentionally memory-only (re-authentication on
   app restart). Remote HTTP without TLS is refused.
+- Authentication admission: bounded HMAC-keyed per-IP login failure windows
+  (10 failures/15 minutes, 2 concurrent per socket IP, 8 global, max 2,048
+  transient buckets). No persistence of rate-limit IPs or proxy header trust.
+  Not a distributed, production-grade abuse-control layer.
 - Sessions: opaque tokens, hashed in the sessions table, 30-day expiry; owner
   bootstrap and single-use, 24-hour invitation codes. Separate random UUID
   handles allow listing and revocation of one's own sessions without revealing

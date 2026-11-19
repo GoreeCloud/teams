@@ -7,6 +7,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./db.mjs";
+import { createLoginLimiter } from "./login-limiter.mjs";
 import {
   validateAttachment, verifiedScan, writePrivateAttachment,
   readPrivateAttachment, deletePrivateAttachment,
@@ -34,7 +35,7 @@ export function createServer({
   const db = openDatabase(databaseFile);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2048 });
   const sockets = new Map();
-  const loginAttempts = new Map();
+  const loginLimiter = createLoginLimiter();
   const getUser = id => db.prepare("SELECT id, username, display_name AS displayName FROM users WHERE id=?").get(id);
   const workspaceRole = (userId, workspaceId) => db.prepare(
     "SELECT role FROM memberships WHERE user_id=? AND workspace_id=?"
@@ -179,18 +180,29 @@ export function createServer({
     return reply.code(201).send({ user: getUser(id), accessToken });
   });
   app.post("/api/auth/login", async (req, reply) => {
-    const b = req.body || {};
-    const ip = req.ip || "unknown", state = loginAttempts.get(ip) || { n: 0, since: Date.now() };
-    if (Date.now() - state.since > 15 * 60_000) { state.n = 0; state.since = Date.now(); }
-    if (state.n >= 10) return error(reply, 429, "Too many attempts. Try again later.");
-    if (typeof b.username !== "string" || typeof b.password !== "string") return error(reply, 400, "Credentials required");
-    const user = db.prepare("SELECT * FROM users WHERE username=?").get(b.username);
-    let matches = false;
-    if (user) { try { matches = await argon2.verify(user.password_hash, b.password); } catch { matches = false; } }
-    if (!matches) { state.n++; loginAttempts.set(ip, state); return error(reply, 401, "Invalid credentials"); }
-    loginAttempts.delete(ip);
-    const accessToken = issueSession(reply, user.id);
-    return { user: getUser(user.id), accessToken };
+    // trustProxy=false: throttling keys come from the socket rather than
+    // untrusted X-Forwarded-For. Never persist or log the client IP.
+    const attempt = loginLimiter.begin(req.ip || "unknown");
+    if (!attempt) return error(reply, 429, "Too many attempts. Try again later.");
+    let authenticated = false;
+    try {
+      const b = req.body || {};
+      if (typeof b.username !== "string" || typeof b.password !== "string") {
+        return error(reply, 400, "Credentials required");
+      }
+      const user = db.prepare("SELECT * FROM users WHERE username=?").get(b.username);
+      let matches = false;
+      if (user) {
+        try { matches = await argon2.verify(user.password_hash, b.password); }
+        catch { matches = false; }
+      }
+      if (!matches) return error(reply, 401, "Invalid credentials");
+      const accessToken = issueSession(reply, user.id);
+      authenticated = true;
+      return { user: getUser(user.id), accessToken };
+    } finally {
+      attempt.finish(authenticated);
+    }
   });
   const closeSessionSockets = hashes => {
     const toClose = new Set(hashes);
