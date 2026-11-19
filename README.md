@@ -78,6 +78,13 @@ shipped server until an independently verified Wardveil scanner is configured,
 and no client attachment interface is enabled.** Do not expose attachments
 publicly. See [attachment trust boundaries and recovery gaps](docs/ATTACHMENTS.md).
 
+## Supply-chain verification
+
+GitHub Actions are pinned to verified commit IDs instead of mutable version
+tags. `npm run verify:action-pins` checks workflow pins and their approved
+repositories. Dependabot opens reviewable weekly npm/Actions update PRs, but
+does not auto-merge or deploy them. See [supply-chain checks and limits](docs/SUPPLY_CHAIN.md).
+
 ## Native Linux / Android
 
 ```bash
