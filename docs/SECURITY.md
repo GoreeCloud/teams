@@ -31,6 +31,17 @@ Avoid public account bootstrapping: the **first registration is automatically
 the owner**. Place the server behind a trusted private network until initial
 setup completes.
 
+## Session-bound WebSocket authorization
+
+Each authenticated WebSocket retains only its session digest, not its bearer
+secret. Message and direct-message fanout verify the session has not been
+revoked or expired before delivery. Logging out explicitly closes all sockets
+associated with that exact session while preserving separate device sessions.
+A synthetic integration test verifies logout isolation and TTL expiry at the
+next event. Full session management, MFA and production monitoring are not
+implemented; expired but idle sockets are closed on the next event rather
+than by an independent periodic expiration sweep.
+
 ## Known blockers before production
 - Password reset, MFA, external Identity SSO, device/session management.
 - Enforced account/user/channel rate limits beyond IP login attempts.
