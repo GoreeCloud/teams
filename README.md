@@ -19,9 +19,11 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)
 - SQLite persistence with WAL, Argon2id password hashes and opaque sessions
+- A fail-closed, scanner-gated private attachment API foundation (not enabled by default)
 - Basic API tests, Flutter widget test, Linux desktop and Android APK CI jobs with temporary debug artifacts
 
-**Not yet supported:** file attachments, editing group membership, voice/video calls, advanced
+**Not yet supported:** end-to-end file attachments in clients or live scanner
+integration (API groundwork only), editing group membership, voice/video calls, advanced
 permissions, E2EE, complete mobile notifications, offline synchronization,
 enterprise SSO/MFA, federation, production readiness and installation/device
 acceptance. Native login tokens intentionally do not persist across restarts.
@@ -65,6 +67,14 @@ It refuses overwriting an existing destination and protects snapshot file
 permissions. See [backup and staged-recovery guidance](docs/BACKUPS.md).
 A real off-host backup strategy and staged restore drill remain required
 before production acceptance.
+
+## Private file attachment foundation
+
+A bounded, workspace-scoped attachment API with private blob storage is
+implemented for synthetic scanner tests only. **Uploads remain disabled in the
+shipped server until an independently verified Wardveil scanner is configured,
+and no client attachment interface is enabled.** Do not expose attachments
+publicly. See [attachment trust boundaries and recovery gaps](docs/ATTACHMENTS.md).
 
 ## Native Linux / Android
 
