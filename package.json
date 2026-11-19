@@ -1,0 +1,16 @@
+{
+  "name": "goreecloud-teams",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted team collaboration with native Linux and Android clients",
+  "workspaces": ["apps/server", "apps/web"],
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev:server": "npm run dev -w @goreecloud/teams-server",
+    "dev:web": "npm run dev -w @goreecloud/teams-web",
+    "build": "npm run build -w @goreecloud/teams-web",
+    "test": "npm run test -w @goreecloud/teams-server",
+    "check": "npm run check -w @goreecloud/teams-web && npm test && npm run build"
+  },
+  "license": "MIT"
+}

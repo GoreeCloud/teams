@@ -1,0 +1,8 @@
+.git
+node_modules
+**/build
+**/.dart_tool
+**/dist
+.env*
+*.sqlite*
+apps/native

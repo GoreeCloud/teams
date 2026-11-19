@@ -1,0 +1,22 @@
+services:
+  teams:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3030
+      TEAMS_DB_PATH: /data/teams.sqlite
+      TEAMS_SITE_ORIGIN: ${TEAMS_SITE_ORIGIN:?Set a secure public HTTPS origin in .env}
+    ports:
+      - "127.0.0.1:3030:3030"
+    volumes:
+      - teams_data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
+volumes:
+  teams_data:

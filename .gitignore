@@ -1,0 +1,16 @@
+node_modules/
+apps/web/dist/
+apps/server/data/
+data/
+*.sqlite
+*.sqlite-*
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+*.tsbuildinfo
