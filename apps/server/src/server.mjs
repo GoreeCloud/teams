@@ -238,6 +238,18 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     return { id: channelId, workspaceId, name: peer.displayName, peerId: peer.id,
       peerName: peer.displayName, isPrivate: 1, kind: "dm" };
   };
+  const groupConversation = (workspaceId, channelId, actorId) => {
+    if (!channelFor(actorId, channelId)) return null;
+    const conversation = db.prepare(
+      "SELECT title FROM group_conversations WHERE channel_id=? AND workspace_id=?"
+    ).get(channelId, workspaceId);
+    if (!conversation) return null;
+    const memberCount = db.prepare(
+      "SELECT count(*) AS count FROM channel_members WHERE channel_id=?"
+    ).get(channelId).count;
+    return { id: channelId, workspaceId, name: conversation.title, isPrivate: 1,
+      kind: "group_dm", memberCount };
+  };
   app.get("/api/workspaces/:workspaceId/dms", { preHandler: requireUser }, async (req, reply) => {
     if (!requireWorkspace(req, reply)) return;
     const rows = db.prepare(`
@@ -245,7 +257,16 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
       WHERE workspace_id=? AND (member_a=? OR member_b=?)
       ORDER BY channel_id
     `).all(req.params.workspaceId, req.actor.id, req.actor.id);
-    return rows.map(row => directConversation(req.params.workspaceId, row.channelId, req.actor.id));
+    const groups = db.prepare(`
+      SELECT g.channel_id AS channelId FROM group_conversations g
+      JOIN channel_members cm ON cm.channel_id=g.channel_id
+      WHERE g.workspace_id=? AND cm.user_id=?
+      ORDER BY g.created_at DESC, g.channel_id DESC
+    `).all(req.params.workspaceId, req.actor.id);
+    return [
+      ...groups.map(row => groupConversation(req.params.workspaceId, row.channelId, req.actor.id)),
+      ...rows.map(row => directConversation(req.params.workspaceId, row.channelId, req.actor.id))
+    ];
   });
   app.post("/api/workspaces/:workspaceId/dms", { preHandler: requireUser }, async (req, reply) => {
     if (!requireWorkspace(req, reply)) return;
@@ -289,6 +310,49 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
       });
     }
     return directConversation(req.params.workspaceId, channelId, req.actor.id);
+  });
+  app.post("/api/workspaces/:workspaceId/group-dms", { preHandler: requireUser }, async (req, reply) => {
+    if (!requireWorkspace(req, reply)) return;
+    const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+    if (!title || title.length > 80 || /[\x00-\x1f\x7f]/.test(title)) {
+      return error(reply, 400, "Group title must contain 1–80 printable characters");
+    }
+    const requested = req.body?.usernames;
+    // At least two teammates plus the creator: one-to-one uses /dms.
+    if (!Array.isArray(requested) || requested.length < 2 || requested.length > 29 ||
+        requested.some(name => typeof name !== "string" || !USERNAME.test(name))) {
+      return error(reply, 400, "Choose 2–29 workspace teammates");
+    }
+    const unique = requested.map(name => name.toLowerCase());
+    if (new Set(unique).size !== unique.length ||
+        unique.includes(req.actor.username.toLowerCase())) {
+      return error(reply, 400, "Group participants must be distinct teammates");
+    }
+    const participants = [req.actor.id];
+    for (const username of requested) {
+      const person = db.prepare("SELECT id FROM users WHERE username=?").get(username);
+      if (!person || !workspaceRole(person.id, req.params.workspaceId)) {
+        return error(reply, 404, "Workspace teammate not found");
+      }
+      participants.push(person.id);
+    }
+    const id = randomUUID();
+    db.transaction(() => {
+      db.prepare("INSERT INTO channels(id,workspace_id,name,is_private,created_at,kind) VALUES(?,?,?,?,?,?)")
+        .run(id, req.params.workspaceId, "group-" + id, 1, now(), "dm");
+      db.prepare("INSERT INTO group_conversations VALUES(?,?,?,?,?)")
+        .run(id, req.params.workspaceId, title, req.actor.id, now());
+      const add = db.prepare("INSERT INTO channel_members VALUES(?,?)");
+      for (const memberId of participants) add.run(id, memberId);
+    })();
+    for (const memberId of participants) {
+      broadcastToUser(memberId, {
+        type: "dm.created",
+        workspaceId: req.params.workspaceId,
+        conversation: groupConversation(req.params.workspaceId, id, memberId)
+      });
+    }
+    return reply.code(201).send(groupConversation(req.params.workspaceId, id, req.actor.id));
   });
   app.post("/api/channels/:channelId/members", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);

@@ -17,9 +17,10 @@ All clients ───────WebSocket───┘         └── Scoped 
   bootstrap and single-use, 24-hour invitation codes.
 - Channels: public by default. Private channels require explicit membership.
 - Direct messages: immutable two-member conversation pairs with unique per-workspace identity, scoped by the same channel authorization and event checks.
+- Group conversations: independently titled private channels with immutable 3–30-person memberships, selected from verified workspace users. Group and direct messages reuse the same message, reaction, thread, search, authorization and WebSocket infrastructure. Group membership editing is not yet supported.
 - Membership directory: authenticated, workspace-scoped usernames/display names/roles for selecting teammates (up to 500 returned); eligible admins/owners already in a private channel may add existing workspace members. This grants historical channel visibility and is never automatic.
 - Messages: basic text, edit, soft delete, replies, reactions and scoped
-  substring search. No attachments, group DMs, voice calls, video, presence or
+  substring search. No attachments, voice calls, video, presence or
   federation yet.
 - Real-time: WebSocket pushes scoped per-channel events; clients refresh
   messages on receipt. No durable event queue or offline conflict resolution.

@@ -100,6 +100,7 @@ export default function App() {
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showNewDm, setShowNewDm] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const scrollAnchor = useRef<HTMLDivElement>(null);
@@ -142,7 +143,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     return connectEvents((event: Event) => {
-      if (event.type === "dm.created" && event.conversation?.kind === "dm" && event.workspaceId === workspace?.id) {
+      if (event.type === "dm.created" && (event.conversation?.kind === "dm" || event.conversation?.kind === "group_dm") && event.workspaceId === workspace?.id) {
         const conversation = event.conversation;
         setDms(previous => [conversation, ...previous.filter(dm => dm.id !== conversation.id)]);
         return;
@@ -198,7 +199,7 @@ export default function App() {
   };
   const addChannelMember = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!channel || !workspace || channel.kind === "dm" || !channel.isPrivate || workspace.role === "member") return;
+    if (!channel || !workspace || (channel.kind && channel.kind !== "channel") || !channel.isPrivate || workspace.role === "member") return;
     const username = String(new FormData(e.currentTarget).get("username") || "");
     try {
       await api("/channels/" + channel.id + "/members", "POST", { username });
@@ -213,6 +214,22 @@ export default function App() {
       setDms(previous => [conversation, ...previous.filter(dm => dm.id !== conversation.id)]);
       setChannel(conversation); setThread(null); setSearchResults(null);
       setShowNewDm(false); setSidebarOpen(false);
+    } catch (err) { setNotice(errorMessage(err)); }
+  };
+  const newGroupConversation = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); if (!workspace) return;
+    const form = new FormData(e.currentTarget);
+    const title = String(form.get("title") || "").trim();
+    const usernames = form.getAll("participant").map(String);
+    if (usernames.length < 2 || usernames.length > 29) {
+      setNotice("Select between 2 and 29 teammates for a group conversation.");
+      return;
+    }
+    try {
+      const conversation = await api<Channel>("/workspaces/" + workspace.id + "/group-dms", "POST", { title, usernames });
+      setDms(previous => [conversation, ...previous.filter(dm => dm.id !== conversation.id)]);
+      setChannel(conversation); setThread(null); setSearchResults(null);
+      setShowNewGroup(false); setSidebarOpen(false);
     } catch (err) { setNotice(errorMessage(err)); }
   };
   const invite = async () => {
@@ -238,11 +255,14 @@ export default function App() {
         <div className="section-head"><span>Channels</span>{workspace && workspace.role !== "member" && <button aria-label="Create channel" onClick={() => setShowNewChannel(true)}><Plus size={18}/></button>}</div>
         <div className="channel-list">{channels.map(ch => <button key={ch.id} className={"channel-link " + (channel?.id === ch.id ? "selected" : "")}
           onClick={() => { setChannel(ch); setSearchResults(null); setSidebarOpen(false); }}>{ch.isPrivate ? <LockKeyhole size={17}/> : <Hash size={18}/>} <span>{ch.name}</span></button>)}</div>
-        <div className="section-head dm-section"><span>Direct messages</span><button aria-label="Start direct message" onClick={() => setShowNewDm(true)}><Plus size={18}/></button></div>
+        <div className="section-head dm-section"><span>Conversations</span><div className="conversation-actions">
+          <button aria-label="Start direct message" title="New direct message" onClick={() => setShowNewDm(true)}><Plus size={18}/></button>
+          <button aria-label="Start group conversation" title="New group conversation" onClick={() => setShowNewGroup(true)}><Users size={18}/></button>
+        </div></div>
         <div className="channel-list">{dms.map(dm => <button key={dm.id} className={"channel-link " + (channel?.id === dm.id ? "selected" : "")}
           onClick={() => { setChannel(dm); setThread(null); setSearchResults(null); setSidebarOpen(false); }}>
-          <MessageCircle size={17}/> <span>{dm.peerName || dm.name}</span></button>)}
-          {dms.length === 0 && <p className="dm-empty">Start a private conversation with a teammate.</p>}
+          {dm.kind === "group_dm" ? <Users size={17}/> : <MessageCircle size={17}/>} <span>{dm.peerName || dm.name}</span></button>)}
+          {dms.length === 0 && <p className="dm-empty">Start a private one-to-one or group conversation.</p>}
         </div>
         <div className="sidebar-label second-label">WORKSPACE TOOLS</div>
         {workspace?.role !== "member" && <button className="tool-link" onClick={() => { setShowInvite(true); setInviteCode(""); }}><UserPlus size={18}/> Invite a teammate</button>}
@@ -260,18 +280,18 @@ export default function App() {
       {searchResults ? <div className="content"><header className="channel-header"><button className="back-button" onClick={() => setSearchResults(null)}><ArrowLeft size={20}/> Back to channel</button><h1>Search results</h1><p>{searchResults.length} messages found for “{search}”</p></header>
         <div className="message-scroll">{searchResults.length ? searchResults.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>) : <p className="empty">Nothing matched your search.</p>}</div></div>
       : channel ? <div className="content">
-        <header className="channel-header"><div className="channel-heading"><div className="channel-identity"><div className="channel-heading-icon">{channel.kind === "dm" ? <MessageCircle size={24}/> : channel.isPrivate ? <LockKeyhole size={24}/> : <Hash size={26}/>}</div>
-          <div><h1>{channel.kind === "dm" ? channel.peerName || channel.name : channel.name}</h1><p>{channel.kind === "dm" ? "Private conversation · visible only to participants" : channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members">
-          {channel.isPrivate && channel.kind !== "dm" && workspace?.role !== "member"
+        <header className="channel-header"><div className="channel-heading"><div className="channel-identity"><div className="channel-heading-icon">{channel.kind === "group_dm" ? <Users size={24}/> : channel.kind === "dm" ? <MessageCircle size={24}/> : channel.isPrivate ? <LockKeyhole size={24}/> : <Hash size={26}/>}</div>
+          <div><h1>{channel.kind === "dm" ? channel.peerName || channel.name : channel.name}</h1><p>{channel.kind === "group_dm" ? "Private group conversation · fixed membership" : channel.kind === "dm" ? "Private conversation · visible only to participants" : channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members">
+          {channel.isPrivate && (!channel.kind || channel.kind === "channel") && workspace?.role !== "member"
             ? <button className="add-channel-member" onClick={() => setShowAddMember(true)}><UserPlus size={18}/> Add member</button>
-            : <><Users size={18}/><span>{channel.kind === "dm" ? "Two participants" : "Team space"}</span></>}
+            : <><Users size={18}/><span>{channel.kind === "group_dm" ? (channel.memberCount || 3) + " participants" : channel.kind === "dm" ? "Two participants" : "Team space"}</span></>}
         </div></div></header>
         <div className="message-scroll" role="log" aria-label={"Messages in " + channel.name}>
-          <div className="channel-intro"><span className="intro-icon">{channel.kind === "dm" ? <MessageCircle size={26}/> : <Hash size={26}/>}</span><h2>{channel.kind === "dm" ? "Conversation with " + (channel.peerName || channel.name) : "Welcome to #" + channel.name}</h2><p>{channel.kind === "dm" ? "Only you and this teammate can see this conversation. Messages are stored on your Teams server." : "This is the beginning of the conversation. Share updates, ask questions, and keep moving forward together."}</p></div>
+          <div className="channel-intro"><span className="intro-icon">{channel.kind === "group_dm" ? <Users size={26}/> : channel.kind === "dm" ? <MessageCircle size={26}/> : <Hash size={26}/>}</span><h2>{channel.kind === "group_dm" ? channel.name : channel.kind === "dm" ? "Conversation with " + (channel.peerName || channel.name) : "Welcome to #" + channel.name}</h2><p>{channel.kind === "group_dm" ? "Only the invited group members can see these messages. Group membership is fixed in this development preview." : channel.kind === "dm" ? "Only you and this teammate can see this conversation. Messages are stored on your Teams server." : "This is the beginning of the conversation. Share updates, ask questions, and keep moving forward together."}</p></div>
           {messages.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>)}
           <div ref={scrollAnchor} />
         </div>
-        <div className="composer-wrap"><Composer key={channel.id} channelName={channel.peerName || channel.name} direct={channel.kind === "dm"} onSend={body => send(body)}/></div>
+        <div className="composer-wrap"><Composer key={channel.id} channelName={channel.peerName || channel.name} direct={channel.kind === "dm" || channel.kind === "group_dm"} onSend={body => send(body)}/></div>
       </div> : <div className="empty-workspace"><Sparkles size={35}/><h2>Choose a channel</h2><p>Your conversations will appear here.</p></div>}
     </main>
     {thread && <aside className="thread-panel" aria-label="Thread">
@@ -289,6 +309,20 @@ export default function App() {
             {members.filter(m => m.id !== user.id).map(m => <option key={m.id} value={m.username}>{m.displayName} (@{m.username})</option>)}
           </select></label>
           <button className="primary-button" type="submit" disabled={!members.some(m => m.id !== user.id)}>Add member</button>
+        </form>
+      </div>
+    </div>}
+    {showNewGroup && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowNewGroup(false); }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Start group conversation">
+        <header><h2>New group conversation</h2><button aria-label="Close dialog" onClick={() => setShowNewGroup(false)}><X size={20}/></button></header>
+        <form onSubmit={newGroupConversation}>
+          <p className="muted">Choose at least two teammates. Membership is fixed; participants can read group history.</p>
+          <label>Group name<input name="title" required minLength={1} maxLength={80} placeholder="Project planning"/></label>
+          <fieldset className="group-members"><legend>Teammates (choose 2–29)</legend>
+            {members.filter(m => m.id !== user.id).map(m =>
+              <label className="checkbox" key={m.id}><input type="checkbox" name="participant" value={m.username}/> {m.displayName} (@{m.username})</label>)}
+          </fieldset>
+          <button className="primary-button" type="submit" disabled={members.filter(m => m.id !== user.id).length < 2}>Create private group</button>
         </form>
       </div>
     </div>}

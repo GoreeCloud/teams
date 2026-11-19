@@ -185,3 +185,8 @@ h1,h2,h3,p { margin-top:0 } .muted { color:var(--text-soft); line-height:1.6 } .
 .modal select option { background:var(--surface); color:var(--text) }
 .channel-header button.add-channel-member { display:flex; align-items:center; gap:8px; border:1px solid var(--outline); padding:8px 12px; border-radius:12px; background:var(--surface); color:var(--text); min-height:40px }
 .add-channel-member:hover { background:var(--surface-tonal) }
+
+.conversation-actions { display:flex; align-items:center; gap:4px }
+.group-members { padding:10px 12px; margin:12px 0 18px; max-height:220px; overflow:auto; border:1px solid var(--outline); border-radius:14px }
+.group-members legend { font-size:.82rem; font-weight:650; padding:0 4px }
+.group-members .checkbox { display:flex; gap:10px; align-items:center; margin:7px 0; font-size:.85rem }
