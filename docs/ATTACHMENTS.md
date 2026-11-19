@@ -61,12 +61,13 @@ include file bytes or storage paths.
   file cannot be removed. Accidental file loss or power interruption can still
   leave missing-file metadata or orphaned blobs; reconciliation and verified
   retention cleanup are **not** implemented.
-- The database online-backup CLI protects **SQLite data only**. Once
-  attachments are enabled, a complete recovery plan must also capture
-  private blob storage consistently with SQLite; a real restore drill is a
-  release gate. File encryption at rest, malware scanner deployment, object
-  storage, DLP, quotas per user, audit trails, and retention policies remain
-  future GoreeShield/Wardveil work.
+- The original database backup CLI protects **SQLite data only**. A separate
+  optional [private bundle backup](BACKUPS.md) captures a verified SQLite
+  snapshot and exactly its referenced private blobs; it refuses missing or
+  tampered files. Real encrypted off-host copies, retention, recovery drills
+  and server acceptance are still required before attachments are enabled.
+  File encryption at rest, malware scanner deployment, object storage,
+  DLP, quotas per user and audit trails remain future GoreeShield/Wardveil work.
 - Test verdicts and local tests are not evidence that malicious files will be
   detected by a real scanner.
 
