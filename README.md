@@ -15,7 +15,9 @@ documentation. **Not production ready; no stable release or deployment verified.
 - One-to-one and 3–30-person private group conversations, with participant-only access and fixed group membership
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Permission-checked, cursor-paginated message and reply history in all clients
+- Per-conversation unread badges with private, cross-device read cursors and foreground-aware acknowledgement
 - Workspace-scoped search, authenticated WebSocket event fanout
+- Reconnecting web real-time transport with recent-history catch-up after interruptions
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)
 - SQLite persistence with WAL, Argon2id password hashes, bounded login attempts and opaque sessions
@@ -76,6 +78,13 @@ implemented for synthetic scanner tests only. **Uploads remain disabled in the
 shipped server until an independently verified Wardveil scanner is configured,
 and no client attachment interface is enabled.** Do not expose attachments
 publicly. See [attachment trust boundaries and recovery gaps](docs/ATTACHMENTS.md).
+
+## Supply-chain verification
+
+GitHub Actions are pinned to verified commit IDs instead of mutable version
+tags. `npm run verify:action-pins` checks workflow pins and their approved
+repositories. Dependabot opens reviewable weekly npm/Actions update PRs, but
+does not auto-merge or deploy them. See [supply-chain checks and limits](docs/SUPPLY_CHAIN.md).
 
 ## Native Linux / Android
 
