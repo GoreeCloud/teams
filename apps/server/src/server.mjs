@@ -42,8 +42,9 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
     const value = bearer || cookieValue(req.headers.cookie, "gc_teams_session");
     if (!value || !/^[a-zA-Z0-9_-]{40,50}$/.test(value)) return null;
-    const row = db.prepare("SELECT user_id AS userId FROM sessions WHERE token_hash=? AND expires_at>?").get(hashToken(value), Date.now());
-    return row ? { ...getUser(row.userId), bearer: !!bearer, sessionToken: value } : null;
+    const digest = hashToken(value);
+    const row = db.prepare("SELECT user_id AS userId FROM sessions WHERE token_hash=? AND expires_at>?").get(digest, Date.now());
+    return row ? { ...getUser(row.userId), bearer: !!bearer, sessionToken: value, sessionHash: digest } : null;
   };
   const ownOrigin = req => {
     const origin = req.headers.origin;
@@ -92,16 +93,26 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
       deletedAt: m.deleted_at, reactions };
   };
   const messageById = id => db.prepare("SELECT * FROM messages WHERE id=?").get(id);
+  // Active WebSocket transport is not proof that a previously authenticated
+  // session remains authorized. Recheck revocation/expiry before fanout.
+  const liveSocket = (socket, session) => {
+    if (socket.readyState !== 1) return false;
+    if (db.prepare("SELECT 1 FROM sessions WHERE token_hash=? AND expires_at>?")
+      .get(session.sessionHash, Date.now())) return true;
+    sockets.delete(socket);
+    socket.close(1008, "Session expired");
+    return false;
+  };
   const broadcast = (channelId, event) => {
     const data = JSON.stringify(event);
-    for (const [socket, userId] of sockets) {
-      if (socket.readyState === 1 && channelFor(userId, channelId)) socket.send(data);
+    for (const [socket, session] of sockets) {
+      if (liveSocket(socket, session) && channelFor(session.userId, channelId)) socket.send(data);
     }
   };
   const broadcastToUser = (recipientId, event) => {
     const data = JSON.stringify(event);
-    for (const [socket, userId] of sockets) {
-      if (userId === recipientId && socket.readyState === 1) socket.send(data);
+    for (const [socket, session] of sockets) {
+      if (liveSocket(socket, session) && session.userId === recipientId) socket.send(data);
     }
   };
 
@@ -171,7 +182,13 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     return { user: getUser(user.id), accessToken };
   });
   app.post("/api/auth/logout", { preHandler: requireUser }, async (req, reply) => {
-    db.prepare("DELETE FROM sessions WHERE token_hash=?").run(hashToken(req.actor.sessionToken));
+    db.prepare("DELETE FROM sessions WHERE token_hash=?").run(req.actor.sessionHash);
+    for (const [socket, session] of sockets) {
+      if (session.sessionHash === req.actor.sessionHash) {
+        sockets.delete(socket);
+        socket.close(1008, "Session revoked");
+      }
+    }
     reply.header("set-cookie", "gc_teams_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
     return { ok: true };
   });
@@ -364,7 +381,7 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
       const user = sessionFromRequest(request);
       if (!user || (!user.bearer && !ownOrigin(request))) { socket.destroy(); return; }
       wss.handleUpgrade(request, socket, head, ws => {
-        sockets.set(ws, user.id);
+        sockets.set(ws, { userId: user.id, sessionHash: user.sessionHash });
         ws.on("close", () => sockets.delete(ws));
         ws.on("error", () => sockets.delete(ws));
         ws.send(JSON.stringify({ type: "connected" }));
