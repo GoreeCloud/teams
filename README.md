@@ -11,19 +11,23 @@ documentation. **Not production ready; no stable release or deployment verified.
 
 - Single-owner first-run setup, local user login, single-use 24-hour invites
 - Workspaces, public/private channels and channel access enforcement
-- Workspace member directory for teammate selection and admin-controlled private-channel invitations
+- Workspace member directory and admin-controlled private-channel membership additions/removals
 - One-to-one and 3–30-person private group conversations, with participant-only access and fixed group membership
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Permission-checked, cursor-paginated message and reply history in all clients
 - Up to 50 permission-scoped pinned messages per channel, DM, or group conversation
+- Per-conversation unread badges with private, cross-device read cursors and foreground-aware acknowledgement
 - Workspace-scoped search, authenticated WebSocket event fanout
+- Reconnecting web real-time transport with recent-history catch-up after interruptions
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)
 - SQLite persistence with WAL, Argon2id password hashes and opaque sessions
 - Session listing and individual/other-session revocation in web, Linux and Android
+- A fail-closed, scanner-gated private attachment API foundation (not enabled by default)
 - Basic API tests, Flutter widget test, Linux desktop and Android APK CI jobs with temporary debug artifacts
 
-**Not yet supported:** file attachments, editing group membership, voice/video calls, advanced
+**Not yet supported:** end-to-end file attachments in clients or live scanner
+integration (API groundwork only), editing group membership, voice/video calls, advanced
 permissions, E2EE, complete mobile notifications, offline synchronization,
 enterprise SSO/MFA, federation, production readiness and installation/device
 acceptance. Native login tokens intentionally do not persist across restarts.
@@ -67,6 +71,21 @@ It refuses overwriting an existing destination and protects snapshot file
 permissions. See [backup and staged-recovery guidance](docs/BACKUPS.md).
 A real off-host backup strategy and staged restore drill remain required
 before production acceptance.
+
+## Private file attachment foundation
+
+A bounded, workspace-scoped attachment API with private blob storage is
+implemented for synthetic scanner tests only. **Uploads remain disabled in the
+shipped server until an independently verified Wardveil scanner is configured,
+and no client attachment interface is enabled.** Do not expose attachments
+publicly. See [attachment trust boundaries and recovery gaps](docs/ATTACHMENTS.md).
+
+## Supply-chain verification
+
+GitHub Actions are pinned to verified commit IDs instead of mutable version
+tags. `npm run verify:action-pins` checks workflow pins and their approved
+repositories. Dependabot opens reviewable weekly npm/Actions update PRs, but
+does not auto-merge or deploy them. See [supply-chain checks and limits](docs/SUPPLY_CHAIN.md).
 
 ## Native Linux / Android
 

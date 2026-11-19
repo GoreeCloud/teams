@@ -123,7 +123,7 @@ class TeamsHome extends StatefulWidget {
   State<TeamsHome> createState() => _TeamsHomeState();
 }
 
-class _TeamsHomeState extends State<TeamsHome> {
+class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
   TeamsApi? api;
   final serverController = TextEditingController(text: 'https://');
   final usernameController = TextEditingController();
@@ -133,6 +133,7 @@ class _TeamsHomeState extends State<TeamsHome> {
   final composerController = TextEditingController();
   bool connected = false, bootstrap = false, register = false, busy = false;
   bool hasOlderMessages = false, loadingOlderMessages = false;
+  bool appIsForeground = true;
   String? currentUserId;
   String? workspaceId, workspaceName, channelId, channelName, threadId;
   String? threadTitle, channelKind;
@@ -141,12 +142,35 @@ class _TeamsHomeState extends State<TeamsHome> {
       dms = [],
       members = [],
       messages = [];
+  Map<String, int> unreadCounts = {};
   WebSocket? socket;
   Timer? reconnectTimer;
   int socketGeneration = 0;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    appIsForeground =
+        lifecycle == null || lifecycle == AppLifecycleState.resumed;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    appIsForeground = state == AppLifecycleState.resumed;
+    if (appIsForeground && api?.accessToken != null) {
+      unawaited(refreshUnread());
+      if (threadId == null && channelId != null && messages.isNotEmpty) {
+        unawaited(acknowledgeRead(channelId!, messages.last['id'] as String));
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     reconnectTimer?.cancel();
     socketGeneration++;
     socket?.close();
@@ -250,12 +274,18 @@ class _TeamsHomeState extends State<TeamsHome> {
       api!.request('/workspaces/$requestedWorkspace/channels'),
       api!.request('/workspaces/$requestedWorkspace/dms'),
       api!.request('/workspaces/$requestedWorkspace/members'),
+      api!.request('/workspaces/$requestedWorkspace/unread'),
     ]);
     if (!mounted || requestedWorkspace != workspaceId) return;
     setState(() {
       channels = (responses[0] as List).cast<Map<String, dynamic>>();
       dms = (responses[1] as List).cast<Map<String, dynamic>>();
       members = (responses[2] as List).cast<Map<String, dynamic>>();
+      unreadCounts = {
+        for (final entry in (responses[3] as List))
+          (entry as Map)['channelId'] as String:
+              (entry['count'] as num).toInt(),
+      };
       final available = [...channels, ...dms];
       final selected = available.where((ch) => ch['id'] == channelId).toList();
       final next = selected.isNotEmpty
@@ -269,6 +299,61 @@ class _TeamsHomeState extends State<TeamsHome> {
       threadId = null;
     });
     await loadMessages();
+  }
+
+  Future<void> refreshUnread() async {
+    final requestedWorkspace = workspaceId;
+    if (requestedWorkspace == null || api?.accessToken == null) return;
+    try {
+      final result =
+          await api!.request('/workspaces/$requestedWorkspace/unread') as List;
+      if (!mounted || workspaceId != requestedWorkspace) return;
+      setState(() {
+        unreadCounts = {
+          for (final entry in result)
+            (entry as Map)['channelId'] as String:
+                (entry['count'] as num).toInt(),
+        };
+      });
+    } catch (_) {
+      // Keep last known badges on a transient network error. Server is authoritative.
+    }
+  }
+
+  Future<void> acknowledgeRead(String readChannel, String messageId) async {
+    try {
+      await api!.request('/channels/$readChannel/read',
+          method: 'POST', data: {'messageId': messageId});
+      if (mounted) await refreshUnread();
+    } catch (_) {
+      // A rejected marker must never appear as a successful acknowledgement.
+    }
+  }
+
+  Widget? unreadBadge(Object? conversationId) {
+    final count = unreadCounts[conversationId];
+    if (count == null || count <= 0) return null;
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      label: '$count unread messages',
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 24, minWidth: 24),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: scheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          count > 99 ? '99+' : '$count',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: scheme.onSecondaryContainer,
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> loadMessages() async {
@@ -290,6 +375,9 @@ class _TeamsHomeState extends State<TeamsHome> {
         messages = page;
         hasOlderMessages = page.length == 50;
       });
+      if (requestedThread == null && page.isNotEmpty && appIsForeground) {
+        unawaited(acknowledgeRead(requestedChannel, page.last['id'] as String));
+      }
     }
   }
 
@@ -377,7 +465,63 @@ class _TeamsHomeState extends State<TeamsHome> {
               setState(() {
                 dms = [dm, ...dms.where((item) => item['id'] != dm['id'])];
               });
+              unawaited(refreshUnread());
               return;
+            }
+            if (event['workspaceId'] == workspaceId &&
+                event['type'] == 'channel.added' &&
+                event['channel'] is Map &&
+                mounted) {
+              final added = Map<String, dynamic>.from(event['channel'] as Map);
+              setState(() {
+                channels = [
+                  added,
+                  ...channels.where((ch) => ch['id'] != added['id'])
+                ];
+              });
+              unawaited(refreshUnread());
+              return;
+            }
+            if (event['workspaceId'] == workspaceId &&
+                event['type'] == 'channel.removed' &&
+                event['channelId'] is String &&
+                mounted) {
+              final removedId = event['channelId'] as String;
+              final wasCurrent = channelId == removedId;
+              setState(() {
+                channels.removeWhere((ch) => ch['id'] == removedId);
+                unreadCounts.remove(removedId);
+                if (wasCurrent) {
+                  channelId = null;
+                  channelName = null;
+                  channelKind = null;
+                  threadId = null;
+                  threadTitle = null;
+                  messages = [];
+                }
+              });
+              if (wasCurrent) loadChannels();
+              return;
+            }
+            if (event['type'] == 'unread.updated' &&
+                event['workspaceId'] == workspaceId) {
+              unawaited(refreshUnread());
+              return;
+            }
+            if ((event['type'] == 'message.created' ||
+                    event['type'] == 'message.updated') &&
+                event['message'] is Map &&
+                (event['message'] as Map)['parentId'] == null) {
+              final updated = event['message'] as Map;
+              if (event['type'] == 'message.created' &&
+                  event['channelId'] == channelId &&
+                  threadId == null &&
+                  appIsForeground) {
+                unawaited(acknowledgeRead(
+                    event['channelId'] as String, updated['id'] as String));
+              } else {
+                unawaited(refreshUnread());
+              }
             }
             if (event['channelId'] == channelId && event['message'] != null) {
               final message = event['message'] as Map;
@@ -525,8 +669,11 @@ class _TeamsHomeState extends State<TeamsHome> {
       channelKind != 'group_dm' &&
       channels.any((ch) => ch['id'] == channelId && ch['isPrivate'] == 1);
 
-  Future<String?> pickTeammate(String title, String explanation) async {
-    final available = members.where((m) => m['id'] != currentUserId).toList();
+  Future<String?> pickTeammate(String title, String explanation,
+      {Set<String> excludeIds = const {}}) async {
+    final available = members
+        .where((m) => m['id'] != currentUserId && !excludeIds.contains(m['id']))
+        .toList();
     if (available.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -692,22 +839,153 @@ class _TeamsHomeState extends State<TeamsHome> {
     });
   }
 
-  Future<void> addChannelMember() async {
+  Future<void> manageChannelMembers() async {
     final currentChannel = channelId;
     if (currentChannel == null || !canAddCurrentChannelMember) return;
-    final username = await pickTeammate(
-      'Add private channel member',
-      'The teammate will be able to read existing channel messages.',
-    );
-    if (username == null || !mounted || currentChannel != channelId) return;
-    await guarded(() async {
-      await api!.request('/channels/$currentChannel/members',
-          method: 'POST', data: {'username': username});
-      if (mounted && currentChannel == channelId) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Channel membership updated.')));
+    List<Map<String, dynamic>> channelMembers;
+    try {
+      channelMembers =
+          (await api!.request('/channels/$currentChannel/members') as List)
+              .cast<Map<String, dynamic>>();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
       }
-    });
+      return;
+    }
+    if (!mounted || currentChannel != channelId) return;
+    bool busy = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> addMember() async {
+            if (busy) return;
+            final username = await pickTeammate(
+              'Add private channel member',
+              'The teammate will gain access to existing channel messages.',
+              excludeIds: channelMembers.map((m) => m['id'] as String).toSet(),
+            );
+            if (username == null ||
+                !dialogContext.mounted ||
+                currentChannel != channelId) {
+              return;
+            }
+            setDialogState(() => busy = true);
+            try {
+              await api!.request('/channels/$currentChannel/members',
+                  method: 'POST', data: {'username': username});
+              final result = await api!
+                  .request('/channels/$currentChannel/members') as List;
+              if (dialogContext.mounted && currentChannel == channelId) {
+                setDialogState(() {
+                  channelMembers = result.cast<Map<String, dynamic>>();
+                  busy = false;
+                });
+              }
+            } catch (e) {
+              if (dialogContext.mounted) {
+                setDialogState(() => busy = false);
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(e.toString())));
+              }
+            }
+          }
+
+          Future<void> removeMember(Map<String, dynamic> target) async {
+            if (busy ||
+                target['id'] == currentUserId ||
+                target['role'] == 'owner') {
+              return;
+            }
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (confirmationContext) => AlertDialog(
+                title: const Text('Remove channel member?'),
+                content: Text(
+                    '@${target['username']} will immediately lose access to this private channel and its history.'),
+                actions: [
+                  TextButton(
+                      onPressed: () =>
+                          Navigator.pop(confirmationContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(confirmationContext, true),
+                      child: const Text('Remove')),
+                ],
+              ),
+            );
+            if (confirmed != true ||
+                !dialogContext.mounted ||
+                currentChannel != channelId) {
+              return;
+            }
+            setDialogState(() => busy = true);
+            try {
+              await api!.request(
+                  '/channels/$currentChannel/members/${target['id']}',
+                  method: 'DELETE');
+              if (dialogContext.mounted && currentChannel == channelId) {
+                setDialogState(() {
+                  channelMembers.removeWhere((m) => m['id'] == target['id']);
+                  busy = false;
+                });
+              }
+            } catch (e) {
+              if (dialogContext.mounted) {
+                setDialogState(() => busy = false);
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(e.toString())));
+              }
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Private channel members'),
+            content: SizedBox(
+              height: 360,
+              width: 420,
+              child: Column(children: [
+                const Text(
+                    'Members can read channel history. Removing someone immediately revokes access.'),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView(
+                    children: channelMembers
+                        .map((person) => ListTile(
+                              title: Text(person['displayName'] as String),
+                              subtitle: Text(
+                                  '@${person['username']} · ${person['role']}'),
+                              trailing: person['id'] == currentUserId ||
+                                      person['role'] == 'owner'
+                                  ? null
+                                  : IconButton(
+                                      tooltip: 'Remove member',
+                                      onPressed: busy
+                                          ? null
+                                          : () => removeMember(person),
+                                      icon: const Icon(
+                                          Icons.person_remove_outlined)),
+                            ))
+                        .toList(),
+                  ),
+                ),
+                if (busy) const LinearProgressIndicator(),
+              ]),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: busy ? null : () => Navigator.pop(dialogContext),
+                  child: const Text('Close')),
+              FilledButton(
+                  onPressed: busy ? null : addMember,
+                  child: const Text('Add teammate')),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> addChannel() async {
@@ -923,6 +1201,7 @@ class _TeamsHomeState extends State<TeamsHome> {
       dms = [];
       members = [];
       messages = [];
+      unreadCounts = {};
       workspaceId = null;
       channelId = null;
       channelKind = null;
@@ -1247,6 +1526,7 @@ class _TeamsHomeState extends State<TeamsHome> {
                                   : Icons.tag,
                               size: 20),
                           title: Text(ch['name'] as String),
+                          trailing: unreadBadge(ch['id']),
                           onTap: () => chooseChannel(ch),
                         ));
                   })),
@@ -1289,6 +1569,7 @@ class _TeamsHomeState extends State<TeamsHome> {
                       size: 20),
                   title: Text((dm['peerName'] ?? dm['name']) as String,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: unreadBadge(dm['id']),
                   onTap: () => chooseChannel(dm),
                 );
               },
@@ -1508,8 +1789,8 @@ class _TeamsHomeState extends State<TeamsHome> {
               actions: [
                   if (canAddCurrentChannelMember)
                     IconButton(
-                        onPressed: addChannelMember,
-                        tooltip: 'Add private channel member',
+                        onPressed: manageChannelMembers,
+                        tooltip: 'Manage private channel members',
                         icon: const Icon(Icons.person_add_alt_outlined)),
                   IconButton(
                       onPressed: channelId == null ? null : viewPinnedMessages,

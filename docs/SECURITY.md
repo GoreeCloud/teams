@@ -8,13 +8,18 @@
   it in the Authorization header. There is no SSO or MFA yet.
 - **Authorization**: Every workspace, channel, message, reply, search, and
   event is checked against workspace membership and (for private channels)
-  explicit channel membership. The authenticated workspace member directory exposes only user IDs, usernames, display names and roles to other workspace members. One-to-one conversations have immutable two-member membership; private group conversations have fixed 3–30-person membership, and neither can be expanded through channel-management APIs. Only admins/owners may invite or add channels;
+  explicit channel membership. Private-channel member removal immediately blocks message/history access, search and event fanout; only existing channel admins/owners may remove members, not themselves or the workspace owner. The authenticated workspace member directory exposes only user IDs, usernames, display names and roles to other workspace members. One-to-one conversations have immutable two-member membership; private group conversations have fixed 3–30-person membership, and neither can be expanded through channel-management APIs. Only admins/owners may invite or add channels;
   only authors edit their messages.
 - **Pinned content**: Pin lists and mutations use the same channel/private
   conversation authorization as messages. Any authorized participant can pin;
   the pinner or a workspace administrator/owner with access can unpin.
   Soft-deleting messages removes corresponding pins; pinned text is not copied
   into a separate public index. A 50-pin limit restricts unbounded accumulation.
+- **Unread/read privacy**: The server stores only the account, channel and
+  last-read root-message timestamp/ID in SQLite. Read markers are monotonic,
+  channel-authorized and visible to the account's own active sessions only;
+  no other user's read receipts, IPs or foreground activity are exposed.
+  Native and web clients avoid marking background messages read.
 - **GoreeShield**: No product telemetry or ad tracking. Search and private
   channels are scoped to authorized viewers. Data lives in an operator-owned
   SQLite volume. Retention/export/delete policy controls are not yet complete.
@@ -62,6 +67,18 @@ committed WAL state to a private, integrity-checked, no-overwrite snapshot.
 See [BACKUPS.md](BACKUPS.md). Backups contain private messages and hashes:
 encrypt them at rest/off-host, apply GoreeShield retention policies and test
 restoration on staging. This is not a production recovery acceptance.
+
+## Attachment trust boundary (disabled by default)
+
+The optional attachment API rejects uploads without an explicitly injected,
+independently verified scanner adapter. Unit and integration tests use only
+synthetic verdicts. Private path-backed blobs are limited to 2 MiB with strict
+filenames, type allowlists, SHA-256 read checks and authorization on every
+download. The shipped server does not enable attachment uploads or client
+attachment controls. SQLite snapshots do not include blob storage. Wardveil
+scanner integration, GoreeShield retention/encryption controls, coordinated
+backup/restore and recovery reconciliation remain separate acceptance gates.
+See [ATTACHMENTS.md](ATTACHMENTS.md).
 
 ## Known blockers before production
 - Password reset, MFA, external Identity SSO and advanced device/session governance.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil, Pin, PinOff } from "lucide-react";
-import { api, connectEvents, type Channel, type Event, type Member, type Message, type SessionInfo, type User, type Workspace } from "./api";
+import { api, connectEvents, reconcileRecentMessages, type Channel, type Event, type Member, type Message, type SessionInfo, type UnreadInfo, type User, type Workspace } from "./api";
 
 const shortTime = (value: string) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const errorMessage = (err: unknown) => err instanceof Error ? err.message : "Something went wrong";
@@ -105,6 +105,7 @@ export default function App() {
   const [showPins, setShowPins] = useState(false);
   const [pins, setPins] = useState<Message[]>([]);
   const [pinsLoading, setPinsLoading] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string,number>>({});
   const [notice, setNotice] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNewChannel, setShowNewChannel] = useState(false);
@@ -112,6 +113,8 @@ export default function App() {
   const [showNewDm, setShowNewDm] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [channelMembers, setChannelMembers] = useState<Member[]>([]);
+  const [channelMemberBusy, setChannelMemberBusy] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionBusy, setSessionBusy] = useState(false);
@@ -123,7 +126,32 @@ export default function App() {
   const pendingThreadScroll = useRef<{height:number;top:number}|null>(null);
   const skipBottomScroll = useRef(false);
   const currentChannelId = useRef<string|null>(null);
+  const currentWorkspaceId = useRef<string|null>(null);
+  const unreadRequestGeneration = useRef(0);
+  const searchIsOpen = useRef(false);
+  searchIsOpen.current = searchResults !== null;
   currentChannelId.current = channel?.id || null;
+  currentWorkspaceId.current = workspace?.id || null;
+  const conversationVisible = () => document.visibilityState === "visible" && document.hasFocus();
+  const refreshUnread = (workspaceId: string) => {
+    const generation = ++unreadRequestGeneration.current;
+    void api<UnreadInfo[]>("/workspaces/" + workspaceId + "/unread")
+      .then(rows => {
+        if (currentWorkspaceId.current === workspaceId && generation === unreadRequestGeneration.current) {
+          setUnreadCounts(Object.fromEntries(rows.map(row => [row.channelId,row.count])));
+        }
+      })
+      .catch(() => { /* Keep the prior counts until the next authenticated fetch. */ });
+  };
+  const acknowledgeRead = (channelId: string, messageId: string) => {
+    void api("/channels/" + channelId + "/read", "POST", { messageId })
+      .then(() => {
+        if (currentChannelId.current === channelId && currentWorkspaceId.current) {
+          refreshUnread(currentWorkspaceId.current);
+        }
+      })
+      .catch(() => { /* Never advertise read success when the server rejected it. */ });
+  };
   const refreshSession = useCallback(async () => {
     try { const r = await api<{user:User}>("/me"); setUser(r.user); }
     catch { setUser(null); const r = await api<{bootstrapAvailable:boolean}>("/config"); setBootstrap(r.bootstrapAvailable); }
@@ -138,6 +166,7 @@ export default function App() {
     if (!workspace) return;
     let active = true;
     setChannel(null); setChannels([]); setDms([]); setMembers([]); setSearchResults(null);
+    setUnreadCounts({}); refreshUnread(workspace.id);
     void Promise.all([
       api<Channel[]>("/workspaces/" + workspace.id + "/channels"),
       api<Channel[]>("/workspaces/" + workspace.id + "/dms"),
@@ -149,16 +178,44 @@ export default function App() {
     }).catch(err => { if (active) setNotice(errorMessage(err)); });
     return () => { active = false; };
   }, [workspace]);
+  useEffect(() => { setShowAddMember(false); setChannelMembers([]); }, [channel?.id]);
   useEffect(() => {
     let active = true;
     setMessages([]); setThread(null); setHasOlder(false); setLoadingOlder(false); setShowPins(false); setPins([]);
     if (channel) {
       void api<Message[]>("/channels/" + channel.id + "/messages")
-        .then(data => { if (active) { setMessages(data); setHasOlder(data.length === 50); } })
+        .then(data => {
+          if (active) {
+            setMessages(data); setHasOlder(data.length === 50);
+            if (data.length && conversationVisible() && !searchIsOpen.current) {
+              acknowledgeRead(channel.id, data[data.length-1].id);
+            }
+          }
+        })
         .catch(err => { if (active) setNotice(errorMessage(err)); });
     }
     return () => { active = false; };
   }, [channel?.id]);
+  useEffect(() => {
+    if (!channel || !messages.length) return;
+    const id = channel.id, latest = messages[messages.length-1].id;
+    const markOnReturn = () => {
+      if (currentChannelId.current === id && conversationVisible() && !searchIsOpen.current) {
+        acknowledgeRead(id, latest);
+      }
+    };
+    window.addEventListener("focus", markOnReturn);
+    document.addEventListener("visibilitychange", markOnReturn);
+    return () => {
+      window.removeEventListener("focus", markOnReturn);
+      document.removeEventListener("visibilitychange", markOnReturn);
+    };
+  }, [channel?.id, messages[messages.length-1]?.id]);
+  useEffect(() => {
+    if (searchResults === null && channel && messages.length && conversationVisible()) {
+      acknowledgeRead(channel.id, messages[messages.length-1].id);
+    }
+  }, [searchResults]);
   useEffect(() => {
     let active = true;
     setReplies([]); setHasOlderReplies(false); setLoadingOlderReplies(false);
@@ -222,10 +279,45 @@ export default function App() {
   };
   useEffect(() => {
     if (!user) return;
-    return connectEvents((event: Event) => {
+    let active = true;
+    const disconnect = connectEvents((event: Event) => {
+      const activeWorkspaceId = workspace?.id;
+      if (event.type === "unread.updated" && activeWorkspaceId && event.workspaceId === activeWorkspaceId) {
+        refreshUnread(activeWorkspaceId);
+        return;
+      }
+      if (event.type === "message.created" && event.channelId && event.message?.parentId === null) {
+        if (event.channelId === currentChannelId.current && conversationVisible() && !searchIsOpen.current) {
+          acknowledgeRead(event.channelId, event.message.id);
+        } else if (workspace) refreshUnread(workspace.id);
+      }
       if (event.type === "dm.created" && (event.conversation?.kind === "dm" || event.conversation?.kind === "group_dm") && event.workspaceId === workspace?.id) {
         const conversation = event.conversation;
         setDms(previous => [conversation, ...previous.filter(dm => dm.id !== conversation.id)]);
+        if (activeWorkspaceId) refreshUnread(activeWorkspaceId);
+        return;
+      }
+      if (event.type === "channel.added" && event.channel && event.workspaceId === workspace?.id) {
+        const added = event.channel;
+        setChannels(previous => [...previous.filter(ch => ch.id !== added.id), added]);
+        if (activeWorkspaceId) refreshUnread(activeWorkspaceId);
+        return;
+      }
+      if (event.type === "channel.removed" && event.channelId && event.workspaceId === workspace?.id) {
+        const removedId = event.channelId;
+        setChannels(previous => previous.filter(ch => ch.id !== removedId));
+        setUnreadCounts(previous => { const next = {...previous}; delete next[removedId]; return next; });
+        if (currentChannelId.current === removedId) {
+          setChannel(null);
+          setThread(null); setSearchResults(null); setShowAddMember(false); setChannelMembers([]);
+        }
+        return;
+      }
+      if (event.type === "channel.membership_updated" && event.channelId === channel?.id) {
+        const id = event.channelId;
+        void api<Member[]>("/channels/" + id + "/members")
+          .then(data => { if (currentChannelId.current === id) setChannelMembers(data); })
+          .catch(() => {});
         return;
       }
       if (!event.message || event.channelId !== channel?.id) return;
@@ -245,9 +337,57 @@ export default function App() {
       }
       if (thread?.id === m.id) setThread(m);
     }, () => {
+      if (!active) return;
       setShowSessions(false); setChannel(null); setWorkspace(null); setWorkspaces([]);
       void refreshSession();
+    }, () => {
+      // The server has no durable WebSocket event queue. On reconnect, fetch
+      // fresh navigation and a contiguous recent page for the selected view.
+      if (!active) return;
+      const scopeId = workspace?.id;
+      if (scopeId) {
+        refreshUnread(scopeId);
+        void Promise.all([
+          api<Channel[]>("/workspaces/" + scopeId + "/channels"),
+          api<Channel[]>("/workspaces/" + scopeId + "/dms"),
+          api<Member[]>("/workspaces/" + scopeId + "/members")
+        ]).then(([recentChannels, recentDms, recentMembers]) => {
+          if (!active) return;
+          setChannels(recentChannels); setDms(recentDms); setMembers(recentMembers);
+          if (channel && ![...recentChannels,...recentDms].some(entry => entry.id === channel.id)) {
+            setChannel(recentChannels[0] || recentDms[0] || null);
+            setThread(null);
+          }
+        }).catch(() => { if (active) setNotice("Connection restored, but the workspace could not be refreshed."); });
+      }
+      if (channel) {
+        const requestedChannelId = channel.id;
+        const rootPage = api<Message[]>("/channels/" + requestedChannelId + "/messages");
+        const threadPage = thread
+          ? api<Message[]>("/channels/" + requestedChannelId + "/messages?parentId=" + thread.id)
+          : Promise.resolve(null);
+        void Promise.all([rootPage,threadPage]).then(([roots,threadReplies]) => {
+          if (!active || currentChannelId.current !== requestedChannelId) return;
+          setMessages(previous => reconcileRecentMessages(previous,roots));
+          setHasOlder(roots.length === 50); setLoadingOlder(false);
+          if (roots.length && conversationVisible() && !searchIsOpen.current) {
+            acknowledgeRead(requestedChannelId, roots[roots.length-1].id);
+          }
+          if (threadReplies) {
+            setReplies(previous => reconcileRecentMessages(previous,threadReplies));
+            setHasOlderReplies(threadReplies.length === 50); setLoadingOlderReplies(false);
+          }
+          setNotice("Connection restored. Recent messages refreshed; load earlier history as needed.");
+        }).catch(() => {
+          if (active) setNotice("Connection restored, but message history could not be refreshed.");
+        });
+      } else {
+        setNotice("Realtime connection restored.");
+      }
+    }, () => {
+      if (active) setNotice("Realtime connection interrupted. Reconnecting automatically…");
     });
+    return () => { active = false; disconnect(); };
   }, [user, workspace?.id, channel?.id, thread?.id, refreshSession]);
   const send = async (body: string, parentId?: string) => {
     if (!channel) return;
@@ -313,14 +453,39 @@ export default function App() {
       setChannels(prev => [...prev, ch].sort((a, b) => a.name.localeCompare(b.name))); setChannel(ch); setShowNewChannel(false);
     } catch (err) { setNotice(errorMessage(err)); }
   };
+  const openChannelMembers = async () => {
+    if (!channel || !workspace || !channel.isPrivate || workspace.role === "member") return;
+    const id = channel.id;
+    setChannelMemberBusy(true);
+    try {
+      const data = await api<Member[]>("/channels/" + id + "/members");
+      if (currentChannelId.current === id) { setChannelMembers(data); setShowAddMember(true); }
+    } catch (err) { setNotice(errorMessage(err)); }
+    finally { setChannelMemberBusy(false); }
+  };
   const addChannelMember = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!channel || !workspace || (channel.kind && channel.kind !== "channel") || !channel.isPrivate || workspace.role === "member") return;
-    const username = String(new FormData(e.currentTarget).get("username") || "");
+    const id = channel.id;
+    const form = e.currentTarget;
+    const username = String(new FormData(form).get("username") || "");
+    setChannelMemberBusy(true);
     try {
-      await api("/channels/" + channel.id + "/members", "POST", { username });
-      setShowAddMember(false);
+      await api("/channels/" + id + "/members", "POST", { username });
+      const updated = await api<Member[]>("/channels/" + id + "/members");
+      if (currentChannelId.current === id) { setChannelMembers(updated); form.reset(); }
     } catch (err) { setNotice(errorMessage(err)); }
+    finally { setChannelMemberBusy(false); }
+  };
+  const removeChannelMember = async (person: Member) => {
+    if (!channel || !window.confirm("Remove @" + person.username + " from this private channel? Their access to its history ends immediately.")) return;
+    const id = channel.id;
+    setChannelMemberBusy(true);
+    try {
+      await api("/channels/" + id + "/members/" + person.id, "DELETE");
+      if (currentChannelId.current === id) setChannelMembers(previous => previous.filter(item => item.id !== person.id));
+    } catch (err) { setNotice(errorMessage(err)); }
+    finally { setChannelMemberBusy(false); }
   };
   const newDirectMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault(); if (!workspace) return;
@@ -396,14 +561,18 @@ export default function App() {
       <div className="sidebar-scroll"><div className="sidebar-label">YOUR SPACE <MoreHorizontal size={16}/></div>
         <div className="section-head"><span>Channels</span>{workspace && workspace.role !== "member" && <button aria-label="Create channel" onClick={() => setShowNewChannel(true)}><Plus size={18}/></button>}</div>
         <div className="channel-list">{channels.map(ch => <button key={ch.id} className={"channel-link " + (channel?.id === ch.id ? "selected" : "")}
-          onClick={() => { setChannel(ch); setSearchResults(null); setSidebarOpen(false); }}>{ch.isPrivate ? <LockKeyhole size={17}/> : <Hash size={18}/>} <span>{ch.name}</span></button>)}</div>
+          onClick={() => { setChannel(ch); setSearchResults(null); setSidebarOpen(false); }}>{ch.isPrivate ? <LockKeyhole size={17}/> : <Hash size={18}/>} <span>{ch.name}</span>
+          {!!unreadCounts[ch.id] && <span className="unread-count" aria-label={unreadCounts[ch.id] + " unread messages"}>{unreadCounts[ch.id] > 99 ? "99+" : unreadCounts[ch.id]}</span>}
+        </button>)}</div>
         <div className="section-head dm-section"><span>Conversations</span><div className="conversation-actions">
           <button aria-label="Start direct message" title="New direct message" onClick={() => setShowNewDm(true)}><Plus size={18}/></button>
           <button aria-label="Start group conversation" title="New group conversation" onClick={() => setShowNewGroup(true)}><Users size={18}/></button>
         </div></div>
         <div className="channel-list">{dms.map(dm => <button key={dm.id} className={"channel-link " + (channel?.id === dm.id ? "selected" : "")}
           onClick={() => { setChannel(dm); setThread(null); setSearchResults(null); setSidebarOpen(false); }}>
-          {dm.kind === "group_dm" ? <Users size={17}/> : <MessageCircle size={17}/>} <span>{dm.peerName || dm.name}</span></button>)}
+          {dm.kind === "group_dm" ? <Users size={17}/> : <MessageCircle size={17}/>} <span>{dm.peerName || dm.name}</span>
+          {!!unreadCounts[dm.id] && <span className="unread-count" aria-label={unreadCounts[dm.id] + " unread messages"}>{unreadCounts[dm.id] > 99 ? "99+" : unreadCounts[dm.id]}</span>}
+        </button>)}
           {dms.length === 0 && <p className="dm-empty">Start a private one-to-one or group conversation.</p>}
         </div>
         <div className="sidebar-label second-label">WORKSPACE TOOLS</div>
@@ -426,7 +595,7 @@ export default function App() {
         <header className="channel-header"><div className="channel-heading"><div className="channel-identity"><div className="channel-heading-icon">{channel.kind === "group_dm" ? <Users size={24}/> : channel.kind === "dm" ? <MessageCircle size={24}/> : channel.isPrivate ? <LockKeyhole size={24}/> : <Hash size={26}/>}</div>
           <div><h1>{channel.kind === "dm" ? channel.peerName || channel.name : channel.name}</h1><p>{channel.kind === "group_dm" ? "Private group conversation · fixed membership" : channel.kind === "dm" ? "Private conversation · visible only to participants" : channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members">
           {channel.isPrivate && (!channel.kind || channel.kind === "channel") && workspace?.role !== "member"
-            ? <button className="add-channel-member" onClick={() => setShowAddMember(true)}><UserPlus size={18}/> Add member</button>
+            ? <button className="add-channel-member" disabled={channelMemberBusy} onClick={() => void openChannelMembers()}><UserPlus size={18}/> Manage members</button>
             : <><Users size={18}/><span>{channel.kind === "group_dm" ? (channel.memberCount || 3) + " participants" : channel.kind === "dm" ? "Two participants" : "Team space"}</span></>}
           <button type="button" className="view-pins" aria-label="View pinned messages" onClick={() => void openPins()}><Pin size={17}/> Pins</button>
         </div></div></header>
@@ -478,14 +647,24 @@ export default function App() {
       </div>
     </div>}
     {showAddMember && channel && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddMember(false); }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Add private channel member">
-        <header><h2>Add channel member</h2><button aria-label="Close dialog" onClick={() => setShowAddMember(false)}><X size={20}/></button></header>
-        <form onSubmit={addChannelMember}><p className="muted">Add a workspace teammate to #{channel.name}. They will be able to read its message history.</p>
-          <label>Workspace teammate<select name="username" defaultValue="" required>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Manage private channel members">
+        <header><h2>Members of #{channel.name}</h2><button aria-label="Close dialog" onClick={() => setShowAddMember(false)}><X size={20}/></button></header>
+        <p className="muted">Only listed members can read this private channel. Removing someone immediately revokes their access to its history.</p>
+        <div className="session-list">
+          {channelMembers.map(person => <div key={person.id} className="session-item">
+            <div><strong>{person.displayName}</strong><p className="muted">@{person.username} · {person.role}</p></div>
+            {person.id !== user.id && person.role !== "owner" && <button type="button" disabled={channelMemberBusy}
+              onClick={() => void removeChannelMember(person)}>Remove</button>}
+          </div>)}
+        </div>
+        <form onSubmit={addChannelMember}>
+          <label>Add workspace teammate<select name="username" defaultValue="" required>
             <option value="" disabled>Select a teammate</option>
-            {members.filter(m => m.id !== user.id).map(m => <option key={m.id} value={m.username}>{m.displayName} (@{m.username})</option>)}
+            {members.filter(m => !channelMembers.some(current => current.id === m.id)).map(m =>
+              <option key={m.id} value={m.username}>{m.displayName} (@{m.username})</option>)}
           </select></label>
-          <button className="primary-button" type="submit" disabled={!members.some(m => m.id !== user.id)}>Add member</button>
+          <button className="primary-button" type="submit"
+            disabled={channelMemberBusy || !members.some(m => !channelMembers.some(existing => existing.id === m.id))}>Add member</button>
         </form>
       </div>
     </div>}

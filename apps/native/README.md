@@ -18,9 +18,10 @@ flutter build apk --debug
 The client prompts for a self-hosted Teams server and refuses remote HTTP
 without TLS. Bearer tokens are held in memory, not persisted across restarts.
 It implements channels, private one-to-one and group conversations, a workspace-scoped teammate
-directory, owner/admin private-channel member invitations, message threads, scoped search,
-edits, deletion, reactions, up to 50 permission-scoped pinned messages per conversation,
-and on-demand paginated channel/thread history. Linux
+directory, owner/admin private-channel membership management, message threads,
+scoped search, edits, deletion, reactions, up to 50 permission-scoped pinned
+messages per conversation, on-demand paginated channel/thread history and
+unread badges which preserve background conversations as unread. Linux
 and Android installation and user-acceptance
 testing are distinct from successful source compilation. Release signing and
 device acceptance remain incomplete.
