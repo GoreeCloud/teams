@@ -14,6 +14,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Workspace member directory for teammate selection and admin-controlled private-channel invitations
 - One-to-one and 3–30-person private group conversations, with participant-only access and fixed group membership
 - Text messages, message edits/deletions, threaded replies, emoji reactions
+- Permission-checked, cursor-paginated message and reply history in all clients
 - Workspace-scoped search, authenticated WebSocket event fanout
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)

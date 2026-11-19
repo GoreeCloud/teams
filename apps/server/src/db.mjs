@@ -42,6 +42,7 @@ export function openDatabase(filename) {
     );
     CREATE INDEX IF NOT EXISTS messages_channel_created ON messages(channel_id, created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS messages_parent ON messages(parent_id);
+    CREATE INDEX IF NOT EXISTS messages_channel_parent_history ON messages(channel_id, parent_id, created_at DESC, id DESC);
     CREATE TABLE IF NOT EXISTS reactions (
       message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -132,6 +132,7 @@ class _TeamsHomeState extends State<TeamsHome> {
   final inviteController = TextEditingController();
   final composerController = TextEditingController();
   bool connected = false, bootstrap = false, register = false, busy = false;
+  bool hasOlderMessages = false, loadingOlderMessages = false;
   String? currentUserId;
   String? workspaceId, workspaceName, channelId, channelName, threadId;
   String? threadTitle, channelKind;
@@ -273,14 +274,84 @@ class _TeamsHomeState extends State<TeamsHome> {
   Future<void> loadMessages() async {
     final requestedChannel = channelId, requestedThread = threadId;
     if (requestedChannel == null) return;
-    final route =
-        '/channels/$requestedChannel/messages${requestedThread != null ? '?parentId=$requestedThread' : ''}';
+    setState(() {
+      messages = [];
+      hasOlderMessages = false;
+      loadingOlderMessages = false;
+    });
+    final suffix = requestedThread == null ? '' : '?parentId=$requestedThread';
+    final route = '/channels/$requestedChannel/messages$suffix';
     final result = await api!.request(route) as List;
     if (mounted &&
         channelId == requestedChannel &&
         threadId == requestedThread) {
-      setState(() => messages = result.cast<Map<String, dynamic>>());
+      final page = result.cast<Map<String, dynamic>>();
+      setState(() {
+        messages = page;
+        hasOlderMessages = page.length == 50;
+      });
     }
+  }
+
+  Future<void> loadOlderMessages() async {
+    final requestedChannel = channelId, requestedThread = threadId;
+    if (requestedChannel == null ||
+        !hasOlderMessages ||
+        loadingOlderMessages ||
+        messages.isEmpty) {
+      return;
+    }
+    final oldest = messages.first['id'] as String;
+    setState(() => loadingOlderMessages = true);
+    try {
+      final parent =
+          requestedThread == null ? '' : '&parentId=$requestedThread';
+      final route =
+          '/channels/$requestedChannel/messages?limit=50&before=$oldest$parent';
+      final result = await api!.request(route) as List;
+      if (!mounted ||
+          channelId != requestedChannel ||
+          threadId != requestedThread) {
+        return;
+      }
+      final older = result.cast<Map<String, dynamic>>();
+      setState(() {
+        final loadedIds = messages.map((m) => m['id']).toSet();
+        messages = [
+          ...older.where((m) => !loadedIds.contains(m['id'])),
+          ...messages
+        ];
+        hasOlderMessages = older.length == 50;
+      });
+    } catch (e) {
+      if (mounted &&
+          channelId == requestedChannel &&
+          threadId == requestedThread) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted &&
+          channelId == requestedChannel &&
+          threadId == requestedThread) {
+        setState(() => loadingOlderMessages = false);
+      }
+    }
+  }
+
+  void applyMessage(Map message) {
+    if (!mounted ||
+        message['channelId'] != channelId ||
+        message['parentId'] != threadId) {
+      return;
+    }
+    final item = Map<String, dynamic>.from(message);
+    final exists = messages.any((m) => m['id'] == item['id']);
+    setState(() {
+      messages = exists
+          ? messages.map((m) => m['id'] == item['id'] ? item : m).toList()
+          : [...messages, item];
+    });
   }
 
   void listenRealtime() {
@@ -312,7 +383,7 @@ class _TeamsHomeState extends State<TeamsHome> {
               final message = event['message'] as Map;
               if ((threadId == null && message['parentId'] == null) ||
                   (threadId != null && message['parentId'] == threadId)) {
-                loadMessages();
+                applyMessage(message);
               }
             }
           } catch (_) {/* Ignore malformed optional event */}
@@ -337,13 +408,13 @@ class _TeamsHomeState extends State<TeamsHome> {
 
   Future<void> sendMessage() => guarded(() async {
         if (channelId == null || composerController.text.trim().isEmpty) return;
-        await api!
+        final result = await api!
             .request('/channels/$channelId/messages', method: 'POST', data: {
           'body': composerController.text.trim(),
           if (threadId != null) 'parentId': threadId
-        });
+        }) as Map;
         composerController.clear();
-        await loadMessages();
+        applyMessage(result);
       });
 
   void chooseChannel(Map<String, dynamic> channel) {
@@ -378,9 +449,11 @@ class _TeamsHomeState extends State<TeamsHome> {
   }
 
   Future<void> reactTo(Map<String, dynamic> message) => guarded(() async {
-        await api!.request('/messages/${message['id']}/reactions',
-            method: 'POST', data: {'emoji': '👍'});
-        await loadMessages();
+        final result = await api!.request(
+            '/messages/${message['id']}/reactions',
+            method: 'POST',
+            data: {'emoji': '👍'}) as Map;
+        applyMessage(result);
       });
 
   Future<void> editMessage(Map<String, dynamic> message) async {
@@ -406,9 +479,11 @@ class _TeamsHomeState extends State<TeamsHome> {
     editor.dispose();
     if (edited == null || edited.trim().isEmpty) return;
     await guarded(() async {
-      await api!.request('/messages/${message['id']}',
-          method: 'PATCH', data: {'body': edited.trim()});
-      await loadMessages();
+      final result = await api!.request('/messages/${message['id']}',
+          method: 'PATCH', data: {'body': edited.trim()}) as Map;
+      // Update the message in place without dropping loaded history.
+      // The API response contains its edited body and reaction counts.
+      applyMessage(result);
     });
   }
 
@@ -429,8 +504,9 @@ class _TeamsHomeState extends State<TeamsHome> {
                 ]));
     if (confirm != true) return;
     await guarded(() async {
-      await api!.request('/messages/${message['id']}', method: 'DELETE');
-      await loadMessages();
+      final result = await api!
+          .request('/messages/${message['id']}', method: 'DELETE') as Map;
+      applyMessage(result);
     });
   }
 
@@ -1090,9 +1166,22 @@ class _TeamsHomeState extends State<TeamsHome> {
                 : ListView.builder(
                     reverse: true,
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    itemCount: messages.length,
-                    itemBuilder: (context, index) =>
-                        messageTile(messages[messages.length - 1 - index]))),
+                    itemCount: messages.length + (hasOlderMessages ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index == messages.length) {
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: OutlinedButton(
+                            onPressed:
+                                loadingOlderMessages ? null : loadOlderMessages,
+                            child: Text(loadingOlderMessages
+                                ? 'Loading history…'
+                                : 'Load earlier messages'),
+                          ),
+                        );
+                      }
+                      return messageTile(messages[messages.length - 1 - index]);
+                    })),
         Padding(
             padding: const EdgeInsets.all(14),
             child: Row(children: [

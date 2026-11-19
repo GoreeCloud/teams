@@ -22,8 +22,14 @@ All clients ───────WebSocket───┘         └── Scoped 
 - Messages: basic text, edit, soft delete, replies, reactions and scoped
   substring search. No attachments, voice calls, video, presence or
   federation yet.
-- Real-time: WebSocket pushes scoped per-channel events; clients refresh
-  messages on receipt. No durable event queue or offline conflict resolution.
+- Message history: keyset pagination by existing message ID, ordered by
+  (created_at, id), maximum 100 rows per request and default 50. Cursors must
+  belong to the exact authorized channel and root/reply scope. Web and native
+  clients load additional pages on request rather than unbounded fetch.
+- Real-time: WebSocket pushes scoped per-channel events; clients merge
+  message events into the current view without discarding older loaded pages.
+  No durable event queue, background notification delivery or offline conflict
+  resolution.
 - MIPS: design tokens are an alpha dependency; GoreeShield (privacy),
   Wardveil (security), Identity and Mesh remain distinct future integration
   contracts, not falsely labeled as deployed platform adapters.

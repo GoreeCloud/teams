@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
 import { api, connectEvents, type Channel, type Event, type Member, type Message, type User, type Workspace } from "./api";
 
@@ -91,8 +91,12 @@ export default function App() {
   const [members, setMembers] = useState<Member[]>([]);
   const [channel, setChannel] = useState<Channel|null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [thread, setThread] = useState<Message|null>(null);
   const [replies, setReplies] = useState<Message[]>([]);
+  const [hasOlderReplies, setHasOlderReplies] = useState(false);
+  const [loadingOlderReplies, setLoadingOlderReplies] = useState(false);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Message[]|null>(null);
   const [notice, setNotice] = useState("");
@@ -104,6 +108,13 @@ export default function App() {
   const [showAddMember, setShowAddMember] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const scrollAnchor = useRef<HTMLDivElement>(null);
+  const scrollViewport = useRef<HTMLDivElement>(null);
+  const threadViewport = useRef<HTMLDivElement>(null);
+  const pendingScroll = useRef<{height:number;top:number}|null>(null);
+  const pendingThreadScroll = useRef<{height:number;top:number}|null>(null);
+  const skipBottomScroll = useRef(false);
+  const currentChannelId = useRef<string|null>(null);
+  currentChannelId.current = channel?.id || null;
   const refreshSession = useCallback(async () => {
     try { const r = await api<{user:User}>("/me"); setUser(r.user); }
     catch { setUser(null); const r = await api<{bootstrapAvailable:boolean}>("/config"); setBootstrap(r.bootstrapAvailable); }
@@ -129,17 +140,77 @@ export default function App() {
     }).catch(err => { if (active) setNotice(errorMessage(err)); });
     return () => { active = false; };
   }, [workspace]);
-  const refreshMessages = useCallback(async () => {
-    if (!channel) return;
-    const data = await api<Message[]>("/channels/" + channel.id + "/messages");
-    setMessages(data);
-  }, [channel]);
-  useEffect(() => { setMessages([]); setThread(null); void refreshMessages().catch(err => setNotice(errorMessage(err))); }, [refreshMessages]);
   useEffect(() => {
-    if (!thread) return;
-    void api<Message[]>("/channels/" + thread.channelId + "/messages?parentId=" + thread.id).then(setReplies).catch(err => setNotice(errorMessage(err)));
-  }, [thread]);
-  useEffect(() => { if (!searchResults) scrollAnchor.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, searchResults]);
+    let active = true;
+    setMessages([]); setThread(null); setHasOlder(false); setLoadingOlder(false);
+    if (channel) {
+      void api<Message[]>("/channels/" + channel.id + "/messages")
+        .then(data => { if (active) { setMessages(data); setHasOlder(data.length === 50); } })
+        .catch(err => { if (active) setNotice(errorMessage(err)); });
+    }
+    return () => { active = false; };
+  }, [channel?.id]);
+  useEffect(() => {
+    let active = true;
+    setReplies([]); setHasOlderReplies(false); setLoadingOlderReplies(false);
+    if (thread) {
+      void api<Message[]>("/channels/" + thread.channelId + "/messages?parentId=" + thread.id)
+        .then(data => { if (active) { setReplies(data); setHasOlderReplies(data.length === 50); } })
+        .catch(err => { if (active) setNotice(errorMessage(err)); });
+    }
+    return () => { active = false; };
+  }, [thread?.id]);
+  useLayoutEffect(() => {
+    if (pendingScroll.current && scrollViewport.current) {
+      const previous = pendingScroll.current, el = scrollViewport.current;
+      el.scrollTop = previous.top + (el.scrollHeight - previous.height);
+      pendingScroll.current = null;
+    }
+  }, [messages]);
+  useLayoutEffect(() => {
+    if (pendingThreadScroll.current && threadViewport.current) {
+      const previous = pendingThreadScroll.current, el = threadViewport.current;
+      el.scrollTop = previous.top + (el.scrollHeight - previous.height);
+      pendingThreadScroll.current = null;
+    }
+  }, [replies]);
+  useEffect(() => {
+    if (skipBottomScroll.current) { skipBottomScroll.current = false; return; }
+    if (!searchResults) scrollAnchor.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, searchResults]);
+  const loadOlder = async () => {
+    if (!channel || !hasOlder || loadingOlder || !messages.length) return;
+    const id = channel.id, before = messages[0].id;
+    setLoadingOlder(true);
+    try {
+      const older = await api<Message[]>("/channels/" + id + "/messages?before=" + encodeURIComponent(before));
+      if (currentChannelId.current !== id) return;
+      setHasOlder(older.length === 50);
+      if (older.length) {
+        const el = scrollViewport.current;
+        if (el) pendingScroll.current = {height:el.scrollHeight,top:el.scrollTop};
+        skipBottomScroll.current = true;
+        setMessages(previous => [...older.filter(item => !previous.some(m => m.id === item.id)),...previous]);
+      }
+    } catch (err) { if (currentChannelId.current === id) setNotice(errorMessage(err)); }
+    finally { if (currentChannelId.current === id) setLoadingOlder(false); }
+  };
+  const loadOlderReplies = async () => {
+    if (!thread || !hasOlderReplies || loadingOlderReplies || !replies.length) return;
+    const id = thread.id, channelId = thread.channelId, before = replies[0].id;
+    setLoadingOlderReplies(true);
+    try {
+      const older = await api<Message[]>("/channels/" + channelId + "/messages?parentId=" + id + "&before=" + encodeURIComponent(before));
+      if (currentChannelId.current !== channelId) return;
+      setHasOlderReplies(older.length === 50);
+      if (older.length) {
+        const el = threadViewport.current;
+        if (el) pendingThreadScroll.current = {height:el.scrollHeight,top:el.scrollTop};
+        setReplies(previous => [...older.filter(item => !previous.some(m => m.id === item.id)),...previous]);
+      }
+    } catch (err) { setNotice(errorMessage(err)); }
+    finally { setLoadingOlderReplies(false); }
+  };
   useEffect(() => {
     if (!user) return;
     return connectEvents((event: Event) => {
@@ -286,7 +357,8 @@ export default function App() {
             ? <button className="add-channel-member" onClick={() => setShowAddMember(true)}><UserPlus size={18}/> Add member</button>
             : <><Users size={18}/><span>{channel.kind === "group_dm" ? (channel.memberCount || 3) + " participants" : channel.kind === "dm" ? "Two participants" : "Team space"}</span></>}
         </div></div></header>
-        <div className="message-scroll" role="log" aria-label={"Messages in " + channel.name}>
+        <div className="message-scroll" ref={scrollViewport} role="log" aria-label={"Messages in " + channel.name}>
+          {hasOlder && <button className="load-older" type="button" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</button>}
           <div className="channel-intro"><span className="intro-icon">{channel.kind === "group_dm" ? <Users size={26}/> : channel.kind === "dm" ? <MessageCircle size={26}/> : <Hash size={26}/>}</span><h2>{channel.kind === "group_dm" ? channel.name : channel.kind === "dm" ? "Conversation with " + (channel.peerName || channel.name) : "Welcome to #" + channel.name}</h2><p>{channel.kind === "group_dm" ? "Only the invited group members can see these messages. Group membership is fixed in this development preview." : channel.kind === "dm" ? "Only you and this teammate can see this conversation. Messages are stored on your Teams server." : "This is the beginning of the conversation. Share updates, ask questions, and keep moving forward together."}</p></div>
           {messages.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>)}
           <div ref={scrollAnchor} />
@@ -296,8 +368,9 @@ export default function App() {
     </main>
     {thread && <aside className="thread-panel" aria-label="Thread">
       <header><strong>Thread</strong><button aria-label="Close thread" onClick={() => setThread(null)}><X size={20}/></button></header>
-      <div className="thread-scroll"><MessageRow message={thread} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove}/>
-        <div className="replies-caption">{replies.length} {replies.length === 1 ? "reply" : "replies"}</div>
+      <div className="thread-scroll" ref={threadViewport}><MessageRow message={thread} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove}/>
+        <div className="replies-caption">{replies.length} loaded {replies.length === 1 ? "reply" : "replies"}</div>
+        {hasOlderReplies && <button className="load-older" type="button" disabled={loadingOlderReplies} onClick={() => void loadOlderReplies()}>{loadingOlderReplies ? "Loading earlier replies…" : "Load earlier replies"}</button>}
         {replies.map(m => <MessageRow key={m.id} message={m} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove}/>)}
       </div><div className="composer-wrap"><Composer key={thread.id} channelName={channel?.name || ""} parent onSend={body => send(body, thread.id)}/></div></aside>}
     {showAddMember && channel && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddMember(false); }}>
