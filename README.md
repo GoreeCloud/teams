@@ -11,6 +11,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 
 - Single-owner first-run setup, local user login, single-use 24-hour invites
 - Workspaces, public/private channels and channel access enforcement
+- Workspace member directory for teammate selection and admin-controlled private-channel invitations
 - One-to-one direct messages with workspace membership and participant-only access
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Workspace-scoped search, authenticated WebSocket event fanout
