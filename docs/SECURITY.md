@@ -80,9 +80,26 @@ scanner integration, GoreeShield retention/encryption controls, coordinated
 backup/restore and recovery reconciliation remain separate acceptance gates.
 See [ATTACHMENTS.md](ATTACHMENTS.md).
 
+## Bounded login-attempt and password-check admission
+
+The login endpoint has an in-process, per-socket-IP failure budget of ten
+rejected attempts in fifteen minutes. It also caps simultaneous password
+verification to two attempts per IP and eight globally, while retaining at
+most 2,048 active failure buckets per process. At saturation, admission fails
+closed with HTTP 429; this can inconvenience users behind a shared NAT.
+Client-supplied X-Forwarded-For cannot bypass the limit because the Fastify
+backend has `trustProxy: false`.
+
+Rate-limit keys are HMAC-SHA256 digests under a new random key for each
+process, never raw client IPs. They are not logged or persisted and expired
+inactive buckets are recycled on subsequent attempts. There is no
+cross-instance distributed limiter, production perimeter abuse control,
+background key expiry task, or independent security audit; these remain
+acceptance requirements before external deployment.
+
 ## Known blockers before production
 - Password reset, MFA, external Identity SSO and advanced device/session governance.
-- Enforced account/user/channel rate limits beyond IP login attempts.
+- Account/user/channel rate limits beyond bounded, per-process IP login admission.
 - Per-workspace migrations and DB concurrency/stress/restore testing.
 - Moderation, abuse controls, sanitization of future rich content and files.
 - Key rotation/revocation workflow, audit trail, incident response and backups.
