@@ -15,6 +15,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - One-to-one and 3–30-person private group conversations, with participant-only access and fixed group membership
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Permission-checked, cursor-paginated message and reply history in all clients
+- Up to 50 permission-scoped pinned messages per channel, DM, or group conversation
 - Workspace-scoped search, authenticated WebSocket event fanout
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)

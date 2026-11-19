@@ -25,6 +25,11 @@ All clients ───────WebSocket───┘         └── Scoped 
 - Messages: basic text, edit, soft delete, replies, reactions and scoped
   substring search. No attachments, voice calls, video, presence or
   federation yet.
+- Pinned messages: bounded to 50 per channel/conversation, stored in an additive
+  SQLite table. All reads/mutations validate channel authorization, while
+  unpin is limited to the pinner or a workspace administrator/owner who is
+  also a member. Deleting a message also removes its pin. Real-time updates
+  reuse the scoped message.updated event.
 - Message history: keyset pagination by existing message ID, ordered by
   (created_at, id), maximum 100 rows per request and default 50. Cursors must
   belong to the exact authorized channel and root/reply scope. Web and native

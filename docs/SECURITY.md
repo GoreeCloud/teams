@@ -10,6 +10,11 @@
   event is checked against workspace membership and (for private channels)
   explicit channel membership. The authenticated workspace member directory exposes only user IDs, usernames, display names and roles to other workspace members. One-to-one conversations have immutable two-member membership; private group conversations have fixed 3–30-person membership, and neither can be expanded through channel-management APIs. Only admins/owners may invite or add channels;
   only authors edit their messages.
+- **Pinned content**: Pin lists and mutations use the same channel/private
+  conversation authorization as messages. Any authorized participant can pin;
+  the pinner or a workspace administrator/owner with access can unpin.
+  Soft-deleting messages removes corresponding pins; pinned text is not copied
+  into a separate public index. A 50-pin limit restricts unbounded accumulation.
 - **GoreeShield**: No product telemetry or ad tracking. Search and private
   channels are scoped to authorized viewers. Data lives in an operator-owned
   SQLite volume. Retention/export/delete policy controls are not yet complete.

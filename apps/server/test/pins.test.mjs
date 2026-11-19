@@ -1,4 +1,7 @@
 import test from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import assert from "node:assert/strict";
 import WebSocket from "ws";
 import { once } from "node:events";
@@ -134,4 +137,40 @@ test("pin events for private channels never reach unrelated workspace sockets", 
   assert.equal(observed[1].filter(event=>event.type==="message.updated").length,1);
   assert.equal(observed[2].filter(event=>event.type==="message.updated").length,0);
   assert.equal(observed[1].find(event=>event.type==="message.updated").message.id,msg.id);
+});
+
+
+test("pins persist across restart and are removed on soft-delete without damaging messages", async t => {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"teams-pin-persist-"));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const filename=path.join(dir,"teams.sqlite");
+  const server=createServer({databaseFile:filename});
+  const session=await call(server,"POST","/api/auth/register",null,{
+    username:"pin_persist_owner",displayName:"Persistence Owner",
+    password:"synthetic-persistent-pin-password-123"
+  });
+  assert.equal(session.statusCode,201,session.body);
+  const token=session.json().accessToken;
+  const workspace=(await call(server,"GET","/api/workspaces",token)).json()[0];
+  const general=(await call(server,"GET","/api/workspaces/"+workspace.id+"/channels",token))
+    .json().find(channel=>channel.name==="general");
+  const message=await putMessage(server,general,token,"Pinned across restart");
+  const pin=await call(server,"POST","/api/messages/"+message.id+"/pin",token,{});
+  assert.equal(pin.statusCode,200);
+  const stamp=pin.json().pinnedAt;
+  await server.close();
+
+  const reopened=createServer({databaseFile:filename});
+  t.after(async()=>reopened.close());
+  const pins=await call(reopened,"GET","/api/channels/"+general.id+"/pins",token);
+  assert.equal(pins.statusCode,200,pins.body);
+  assert.equal(pins.json().length,1);
+  assert.equal(pins.json()[0].pinnedAt,stamp);
+  assert.equal(pins.json()[0].body,"Pinned across restart");
+  const removed=await call(reopened,"DELETE","/api/messages/"+message.id,token);
+  assert.equal(removed.statusCode,200,removed.body);
+  assert.equal(removed.json().pinnedAt,null);
+  assert.equal((await call(reopened,"GET","/api/channels/"+general.id+"/pins",token)).json().length,0);
+  const deleted=await call(reopened,"GET","/api/channels/"+general.id+"/messages",token);
+  assert.equal(deleted.json().find(item=>item.id===message.id).body,"");
 });

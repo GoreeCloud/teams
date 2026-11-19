@@ -19,7 +19,8 @@ The client prompts for a self-hosted Teams server and refuses remote HTTP
 without TLS. Bearer tokens are held in memory, not persisted across restarts.
 It implements channels, private one-to-one and group conversations, a workspace-scoped teammate
 directory, owner/admin private-channel member invitations, message threads, scoped search,
-edits, deletion, reactions, and on-demand paginated channel/thread history. Linux
+edits, deletion, reactions, up to 50 permission-scoped pinned messages per conversation,
+and on-demand paginated channel/thread history. Linux
 and Android installation and user-acceptance
 testing are distinct from successful source compilation. Release signing and
 device acceptance remain incomplete.
