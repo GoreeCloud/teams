@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
-import { api, connectEvents, type Channel, type Event, type Message, type User, type Workspace } from "./api";
+import { api, connectEvents, type Channel, type Event, type Member, type Message, type User, type Workspace } from "./api";
 
 const shortTime = (value: string) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const errorMessage = (err: unknown) => err instanceof Error ? err.message : "Something went wrong";
@@ -88,6 +88,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace|null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [dms, setDms] = useState<Channel[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [channel, setChannel] = useState<Channel|null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [thread, setThread] = useState<Message|null>(null);
@@ -99,6 +100,7 @@ export default function App() {
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showNewDm, setShowNewDm] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const scrollAnchor = useRef<HTMLDivElement>(null);
   const refreshSession = useCallback(async () => {
@@ -114,13 +116,14 @@ export default function App() {
   useEffect(() => {
     if (!workspace) return;
     let active = true;
-    setChannel(null); setChannels([]); setDms([]); setSearchResults(null);
+    setChannel(null); setChannels([]); setDms([]); setMembers([]); setSearchResults(null);
     void Promise.all([
       api<Channel[]>("/workspaces/" + workspace.id + "/channels"),
-      api<Channel[]>("/workspaces/" + workspace.id + "/dms")
-    ]).then(([channelData, dmData]) => {
+      api<Channel[]>("/workspaces/" + workspace.id + "/dms"),
+      api<Member[]>("/workspaces/" + workspace.id + "/members")
+    ]).then(([channelData, dmData, memberData]) => {
       if (!active) return;
-      setChannels(channelData); setDms(dmData);
+      setChannels(channelData); setDms(dmData); setMembers(memberData);
       setChannel(channelData.find(x => x.name === "general") || channelData[0] || dmData[0] || null);
     }).catch(err => { if (active) setNotice(errorMessage(err)); });
     return () => { active = false; };
@@ -193,6 +196,15 @@ export default function App() {
       setChannels(prev => [...prev, ch].sort((a, b) => a.name.localeCompare(b.name))); setChannel(ch); setShowNewChannel(false);
     } catch (err) { setNotice(errorMessage(err)); }
   };
+  const addChannelMember = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!channel || !workspace || channel.kind === "dm" || !channel.isPrivate || workspace.role === "member") return;
+    const username = String(new FormData(e.currentTarget).get("username") || "");
+    try {
+      await api("/channels/" + channel.id + "/members", "POST", { username });
+      setShowAddMember(false);
+    } catch (err) { setNotice(errorMessage(err)); }
+  };
   const newDirectMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault(); if (!workspace) return;
     const username = String(new FormData(e.currentTarget).get("username") || "").trim();
@@ -249,7 +261,11 @@ export default function App() {
         <div className="message-scroll">{searchResults.length ? searchResults.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>) : <p className="empty">Nothing matched your search.</p>}</div></div>
       : channel ? <div className="content">
         <header className="channel-header"><div className="channel-heading"><div className="channel-identity"><div className="channel-heading-icon">{channel.kind === "dm" ? <MessageCircle size={24}/> : channel.isPrivate ? <LockKeyhole size={24}/> : <Hash size={26}/>}</div>
-          <div><h1>{channel.kind === "dm" ? channel.peerName || channel.name : channel.name}</h1><p>{channel.kind === "dm" ? "Private conversation · visible only to participants" : channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members"><Users size={18}/><span>Team space</span></div></div></header>
+          <div><h1>{channel.kind === "dm" ? channel.peerName || channel.name : channel.name}</h1><p>{channel.kind === "dm" ? "Private conversation · visible only to participants" : channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members">
+          {channel.isPrivate && channel.kind !== "dm" && workspace?.role !== "member"
+            ? <button className="add-channel-member" onClick={() => setShowAddMember(true)}><UserPlus size={18}/> Add member</button>
+            : <><Users size={18}/><span>{channel.kind === "dm" ? "Two participants" : "Team space"}</span></>}
+        </div></div></header>
         <div className="message-scroll" role="log" aria-label={"Messages in " + channel.name}>
           <div className="channel-intro"><span className="intro-icon">{channel.kind === "dm" ? <MessageCircle size={26}/> : <Hash size={26}/>}</span><h2>{channel.kind === "dm" ? "Conversation with " + (channel.peerName || channel.name) : "Welcome to #" + channel.name}</h2><p>{channel.kind === "dm" ? "Only you and this teammate can see this conversation. Messages are stored on your Teams server." : "This is the beginning of the conversation. Share updates, ask questions, and keep moving forward together."}</p></div>
           {messages.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove}/>)}
@@ -264,12 +280,27 @@ export default function App() {
         <div className="replies-caption">{replies.length} {replies.length === 1 ? "reply" : "replies"}</div>
         {replies.map(m => <MessageRow key={m.id} message={m} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove}/>)}
       </div><div className="composer-wrap"><Composer key={thread.id} channelName={channel?.name || ""} parent onSend={body => send(body, thread.id)}/></div></aside>}
+    {showAddMember && channel && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddMember(false); }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Add private channel member">
+        <header><h2>Add channel member</h2><button aria-label="Close dialog" onClick={() => setShowAddMember(false)}><X size={20}/></button></header>
+        <form onSubmit={addChannelMember}><p className="muted">Add a workspace teammate to #{channel.name}. They will be able to read its message history.</p>
+          <label>Workspace teammate<select name="username" defaultValue="" required>
+            <option value="" disabled>Select a teammate</option>
+            {members.filter(m => m.id !== user.id).map(m => <option key={m.id} value={m.username}>{m.displayName} (@{m.username})</option>)}
+          </select></label>
+          <button className="primary-button" type="submit" disabled={!members.some(m => m.id !== user.id)}>Add member</button>
+        </form>
+      </div>
+    </div>}
     {showNewDm && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowNewDm(false); }}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="Start direct message">
         <header><h2>New direct message</h2><button aria-label="Close dialog" onClick={() => setShowNewDm(false)}><X size={20}/></button></header>
         <form onSubmit={newDirectMessage}><p className="muted">Choose an existing member of your workspace. Only the two of you can access this conversation.</p>
-          <label>Teammate username<input name="username" required minLength={3} maxLength={32} pattern="[a-zA-Z0-9_.-]{3,32}" autoFocus placeholder="teammate" autoComplete="off"/></label>
-          <button className="primary-button" type="submit">Start conversation</button>
+          <label>Teammate<select name="username" required defaultValue="" autoFocus>
+            <option value="" disabled>Select a teammate</option>
+            {members.filter(m => m.id !== user.id).map(m => <option key={m.id} value={m.username}>{m.displayName} (@{m.username})</option>)}
+          </select></label>
+          <button className="primary-button" type="submit" disabled={!members.some(m => m.id !== user.id)}>Start conversation</button>
         </form>
       </div>
     </div>}

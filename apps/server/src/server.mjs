@@ -179,6 +179,16 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
   app.get("/api/workspaces", { preHandler: requireUser }, async req =>
     db.prepare("SELECT w.id,w.name,m.role FROM workspaces w JOIN memberships m ON m.workspace_id=w.id WHERE m.user_id=? ORDER BY w.name")
       .all(req.actor.id));
+  app.get("/api/workspaces/:workspaceId/members", { preHandler: requireUser }, async (req, reply) => {
+    if (!requireWorkspace(req, reply)) return;
+    return db.prepare(`
+      SELECT u.id, u.username, u.display_name AS displayName, m.role
+      FROM memberships m JOIN users u ON u.id=m.user_id
+      WHERE m.workspace_id=?
+      ORDER BY u.display_name COLLATE NOCASE, u.username COLLATE NOCASE
+      LIMIT 500
+    `).all(req.params.workspaceId);
+  });
   app.get("/api/workspaces/:workspaceId/channels", { preHandler: requireUser }, async (req, reply) => {
     if (!requireWorkspace(req, reply)) return;
     return db.prepare(`

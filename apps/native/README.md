@@ -17,7 +17,8 @@ flutter build apk --debug
 
 The client prompts for a self-hosted Teams server and refuses remote HTTP
 without TLS. Bearer tokens are held in memory, not persisted across restarts.
-It implements channels, private direct messages, message threads, scoped search,
+It implements channels, private direct messages, a workspace-scoped teammate
+directory, owner/admin private-channel member invitations, message threads, scoped search,
 edits, deletion and reactions. Linux and Android installation and user-acceptance
 testing are distinct from successful source compilation. Release signing and
 device acceptance remain incomplete.
