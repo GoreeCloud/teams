@@ -19,6 +19,17 @@ filename. A completed backup preserves committed data visible to SQLite
 (including WAL transactions). It does not include external attachments or
 system configuration.
 
+For a development Compose instance, the script is also packaged in the server
+image, so a temporary snapshot can be created using:
+
+```bash
+docker compose exec teams node scripts/backup.mjs --source /data/teams.sqlite --destination /data/teams-snapshot.sqlite
+```
+
+**This example writes to the same data volume and is not an off-host backup.**
+Move the verified snapshot to properly encrypted, access-controlled off-host
+storage immediately, and do not leave long-lived copies in the live volume.
+
 Store backups in an access-controlled location outside the primary host.
 Maintain independent off-host copies and encryption suitable for the operator's
 threat model. Backup files contain private message bodies, member metadata,

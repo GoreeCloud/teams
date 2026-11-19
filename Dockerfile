@@ -15,6 +15,7 @@ COPY apps/server/package.json apps/server/package.json
 COPY apps/web/package.json apps/web/package.json
 RUN npm ci --omit=dev && npm cache clean --force
 COPY apps/server/src apps/server/src
+COPY scripts/backup.mjs scripts/backup.mjs
 COPY --from=build /app/apps/web/dist apps/web/dist
 RUN mkdir -p /data && chown node:node /data
 USER node
