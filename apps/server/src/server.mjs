@@ -7,6 +7,11 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./db.mjs";
+import {
+  validateAttachment, verifiedScan, writePrivateAttachment,
+  readPrivateAttachment, deletePrivateAttachment,
+  MAX_WORKSPACE_ATTACHMENT_BYTES, ATTACHMENT_BODY_LIMIT
+} from "./attachments.mjs";
 
 const MAX_BODY = 4000;
 const USERNAME = /^[a-zA-Z0-9_.-]{3,32}$/;
@@ -21,7 +26,10 @@ const cookieValue = (header, name) => {
   return raw ? raw.slice(name.length + 1) : "";
 };
 
-export function createServer({ databaseFile = ":memory:", siteOrigin = "", serveWeb = false } = {}) {
+export function createServer({
+  databaseFile = ":memory:", siteOrigin = "", serveWeb = false,
+  attachmentDirectory = null, scanAttachment = null
+} = {}) {
   const app = Fastify({ logger: false, bodyLimit: 32 * 1024, trustProxy: false });
   const db = openDatabase(databaseFile);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2048 });
@@ -90,7 +98,10 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     return { id: m.id, channelId: m.channel_id, authorId: m.author_id,
       author: getUser(m.author_id)?.displayName || "Unknown", body: m.deleted_at ? "" : m.body,
       parentId: m.parent_id, createdAt: m.created_at, editedAt: m.edited_at,
-      deletedAt: m.deleted_at, reactions };
+      deletedAt: m.deleted_at, reactions,
+      attachments: m.deleted_at ? [] : db.prepare(
+        "SELECT id, filename, mime_type AS mimeType, size FROM attachments WHERE message_id=? ORDER BY created_at, id"
+      ).all(m.id) };
   };
   const messageById = id => db.prepare("SELECT * FROM messages WHERE id=?").get(id);
   // Active WebSocket transport is not proof that a previously authenticated
@@ -462,6 +473,83 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
       .run(hashToken(inviteToken), req.params.workspaceId, requested, Date.now() + 86400_000);
     return reply.code(201).send({ invite: inviteToken, expiresInSeconds: 86400, role: requested });
   });
+  // The upload path stays fail-closed unless an independently verified
+  // Wardveil-compatible scanner adapter is explicitly injected at startup.
+  // No uploads are enabled by default in the shipped application.
+  app.post("/api/channels/:channelId/attachments", {
+    preHandler: requireUser, bodyLimit: ATTACHMENT_BODY_LIMIT
+  }, async (req, reply) => {
+    const ch = requireChannel(req, reply, req.params.channelId);
+    if (!ch) return;
+    if (typeof scanAttachment !== "function" || !attachmentDirectory) {
+      return error(reply, 503, "Attachment scanning is not configured");
+    }
+    const file = validateAttachment(req.body);
+    if (file.error) return error(reply, 400, file.error);
+    const caption = req.body?.caption === undefined
+      ? "Shared file: " + file.filename : req.body.caption;
+    if (!validText(caption, MAX_BODY)) return error(reply, 400, "Invalid attachment caption");
+    const parentId = typeof req.body?.parentId === "string" ? req.body.parentId : null;
+    if (parentId && (messageById(parentId)?.channel_id !== ch.id || messageById(parentId)?.parent_id)) {
+      return error(reply, 400, "Invalid parent message");
+    }
+    const verdict = await verifiedScan(scanAttachment, file);
+    if (!verdict.ok) return error(reply, verdict.status, verdict.error);
+    // A session or private-channel membership may change during the scanner
+    // await; revalidate both immediately before committing the message.
+    if (!sessionFromRequest(req)) return error(reply, 401, "Session expired");
+    if (!channelFor(req.actor.id, ch.id)) return error(reply, 404, "Channel not found");
+    const attachmentId = randomUUID(), messageId = randomUUID(), timestamp = now();
+    let written = false;
+    try {
+      writePrivateAttachment(attachmentDirectory, attachmentId, file.bytes);
+      written = true;
+      db.transaction(() => {
+        const used = db.prepare(`SELECT coalesce(sum(a.size),0) AS total
+          FROM attachments a JOIN messages m ON m.id=a.message_id
+          JOIN channels c ON c.id=m.channel_id WHERE c.workspace_id=?`)
+          .get(ch.workspaceId).total;
+        if (used + file.size > MAX_WORKSPACE_ATTACHMENT_BYTES) {
+          const quota = new Error("Workspace attachment quota exceeded");
+          quota.statusCode = 413;
+          throw quota;
+        }
+        db.prepare("INSERT INTO messages VALUES(?,?,?,?,?,?,NULL,NULL)")
+          .run(messageId, ch.id, req.actor.id, caption.trim(), parentId, timestamp);
+        db.prepare("INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?)")
+          .run(attachmentId, messageId, req.actor.id,
+            file.filename, file.mimeType, file.size, file.digest, timestamp);
+      })();
+    } catch (cause) {
+      if (written) {
+        try { deletePrivateAttachment(attachmentDirectory, attachmentId); }
+        catch { /* private orphan cleanup is an operational recovery gate */ }
+      }
+      return error(reply, cause.statusCode === 413 ? 413 : 503,
+        cause.statusCode === 413 ? "Workspace attachment quota exceeded" : "Attachment storage unavailable");
+    }
+    const message = publicMessage(messageById(messageId));
+    broadcast(ch.id, { type: "message.created", channelId: ch.id, message });
+    return reply.code(201).send(message);
+  });
+  app.get("/api/attachments/:attachmentId", { preHandler: requireUser }, async (req, reply) => {
+    const id = req.params.attachmentId;
+    if (typeof id !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
+      return error(reply, 400, "Invalid attachment ID");
+    }
+    const item = db.prepare(`SELECT a.*, m.channel_id AS channelId, m.deleted_at AS deletedAt
+      FROM attachments a JOIN messages m ON m.id=a.message_id WHERE a.id=?`).get(id);
+    if (!item || item.deletedAt || !channelFor(req.actor.id, item.channelId)) {
+      return error(reply, 404, "Attachment not found");
+    }
+    if (!attachmentDirectory) return error(reply, 503, "Attachment storage unavailable");
+    let bytes;
+    try { bytes = readPrivateAttachment(attachmentDirectory, id, item.size, item.sha256); }
+    catch { return error(reply, 503, "Attachment storage unavailable"); }
+    reply.header("Content-Disposition", 'attachment; filename="' + item.filename + '"');
+    reply.type("application/octet-stream");
+    return reply.send(bytes);
+  });
   app.get("/api/channels/:channelId/messages", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);
     if (!ch) return;
@@ -531,7 +619,18 @@ export function createServer({ databaseFile = ":memory:", siteOrigin = "", serve
     if (!old || !requireChannel(req, reply, old.channel_id)) return;
     const role = workspaceRole(req.actor.id, channelFor(req.actor.id, old.channel_id).workspaceId);
     if (old.author_id !== req.actor.id && role === "member") return error(reply, 403, "Insufficient permissions");
-    db.prepare("UPDATE messages SET body='',deleted_at=? WHERE id=? AND deleted_at IS NULL").run(now(), old.id);
+    // Revoke download access and purge stored bytes during message deletion.
+    // A failed local unlink fails closed instead of reporting successful erasure.
+    const stored = db.prepare("SELECT id FROM attachments WHERE message_id=?").all(old.id);
+    try {
+      for (const item of stored) deletePrivateAttachment(attachmentDirectory, item.id);
+    } catch {
+      return error(reply, 503, "Attachment deletion could not be completed");
+    }
+    db.transaction(() => {
+      db.prepare("DELETE FROM attachments WHERE message_id=?").run(old.id);
+      db.prepare("UPDATE messages SET body='',deleted_at=? WHERE id=? AND deleted_at IS NULL").run(now(), old.id);
+    })();
     const message = publicMessage(messageById(old.id));
     broadcast(old.channel_id, { type: "message.updated", channelId: old.channel_id, message });
     return message;
