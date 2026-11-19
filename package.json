@@ -11,7 +11,8 @@
     "build": "npm run build -w @goreecloud/teams-web",
     "test": "npm run test -w @goreecloud/teams-server",
     "backup": "node scripts/backup.mjs",
-    "check": "npm run check -w @goreecloud/teams-web && npm test && npm run build"
+    "verify:action-pins": "node --test scripts/verify-action-pins.test.mjs && node scripts/verify-action-pins.mjs",
+    "check": "npm run verify:action-pins && npm run check -w @goreecloud/teams-web && npm test && npm run build"
   },
   "license": "MIT"
 }
