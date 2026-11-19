@@ -2,6 +2,7 @@ export type User = { id: string; username: string; displayName: string };
 export type Workspace = { id: string; name: string; role: "owner"|"admin"|"member" };
 export type Member = User & { role: "owner"|"admin"|"member" };
 export type SessionInfo = { id:string; createdAt:number|null; expiresAt:number; current:boolean };
+export type UnreadInfo = { channelId:string; count:number };
 export type Channel = { id: string; name: string; workspaceId: string; isPrivate: number; kind?: "channel"|"dm"|"group_dm"; peerName?: string; peerId?: string; memberCount?: number };
 export type Reaction = { emoji: string; count: number };
 export type Message = { id: string; channelId: string; authorId: string; author: string; body: string; parentId: string|null; createdAt: string; editedAt: string|null; deletedAt: string|null; reactions: Reaction[] };
