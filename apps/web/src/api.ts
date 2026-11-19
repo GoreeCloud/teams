@@ -16,8 +16,11 @@ export async function api<T>(url: string, method = "GET", body?: object): Promis
   if (!response.ok) throw new Error(payload.error || "Request failed");
   return payload as T;
 }
-export function connectEvents(onEvent: (event: Event) => void): () => void {
+export function connectEvents(onEvent: (event: Event) => void, onSessionRevoked?: () => void): () => void {
   const socket = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/events");
   socket.onmessage = (event) => { try { onEvent(JSON.parse(event.data)); } catch { /* ignore malformed events */ } };
+  // A 1008 policy-close from the server signals session revocation/expiry.
+  // Ignore ordinary navigation/unmount closures and network interruptions.
+  socket.onclose = event => { if (event.code === 1008) onSessionRevoked?.(); };
   return () => socket.close();
 }

@@ -43,7 +43,10 @@ others. Session listings disclose only a random public UUID, optional creation
 time, expiry time and current-session indicator, not bearer hashes or client
 identifiers. Legacy sessions retain their original authentication and receive
 stable random IDs with an unknown creation timestamp. Each revoked session's
-active WebSockets close immediately. Session administration is not MFA/SSO or
+active WebSockets close immediately. Web and Flutter clients treat a server
+WebSocket policy-close (1008) as revocation and return to sign-in without
+persisting the invalid token; ordinary transport closures do not force logout.
+Session administration is not MFA/SSO or
 full multi-device identity governance; expired but idle sockets close on the
 next event rather than on an independent periodic expiration sweep.
 

@@ -230,8 +230,11 @@ export default function App() {
       if (m.parentId) setReplies(prev => apply(prev));
       else setMessages(prev => apply(prev));
       if (thread?.id === m.id) setThread(m);
+    }, () => {
+      setShowSessions(false); setChannel(null); setWorkspace(null); setWorkspaces([]);
+      void refreshSession();
     });
-  }, [user, workspace?.id, channel?.id, thread?.id]);
+  }, [user, workspace?.id, channel?.id, thread?.id, refreshSession]);
   const send = async (body: string, parentId?: string) => {
     if (!channel) return;
     try {

@@ -387,9 +387,15 @@ class _TeamsHomeState extends State<TeamsHome> {
               }
             }
           } catch (_) {/* Ignore malformed optional event */}
-        },
-            onDone: () => scheduleReconnect(generation),
-            onError: (_) => scheduleReconnect(generation));
+        }, onDone: () {
+          if (mounted &&
+              generation == socketGeneration &&
+              live.closeCode == WebSocketStatus.policyViolation) {
+            clearClientSession(keepServer: true);
+          } else {
+            scheduleReconnect(generation);
+          }
+        }, onError: (_) => scheduleReconnect(generation));
       } catch (_) {
         scheduleReconnect(generation);
       }
@@ -899,13 +905,19 @@ class _TeamsHomeState extends State<TeamsHome> {
 
   void signOut() {
     api?.request('/auth/logout', method: 'POST').catchError((_) => null);
+    clearClientSession(keepServer: false);
+  }
+
+  void clearClientSession({required bool keepServer}) {
     socketGeneration++;
     reconnectTimer?.cancel();
     socket?.close();
+    if (!mounted) return;
     setState(() {
       api?.accessToken = null;
       currentUserId = null;
-      connected = false;
+      connected = keepServer;
+      register = false;
       workspaces = [];
       channels = [];
       dms = [];
