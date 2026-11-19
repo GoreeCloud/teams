@@ -15,6 +15,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - One-to-one and 3–30-person private group conversations, with participant-only access and fixed group membership
 - Text messages, message edits/deletions, threaded replies, emoji reactions
 - Permission-checked, cursor-paginated message and reply history in all clients
+- Up to 50 permission-scoped pinned messages per channel, DM, or group conversation
 - Per-conversation unread badges with private, cross-device read cursors and foreground-aware acknowledgement
 - Workspace-scoped search, authenticated WebSocket event fanout
 - Reconnecting web real-time transport with recent-history catch-up after interruptions
