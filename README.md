@@ -24,6 +24,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - SQLite persistence with WAL, Argon2id password hashes, bounded login attempts and opaque sessions
 - Session listing and individual/other-session revocation in web, Linux and Android
 - A fail-closed, scanner-gated private attachment API foundation (not enabled by default)
+- Optional operator-driven, verified SQLite-plus-private-attachments backup bundle (not encrypted or scheduled)
 - Basic API tests, Flutter widget test, Linux desktop and Android APK CI jobs with temporary debug artifacts
 
 **Not yet supported:** end-to-end file attachments in clients or live scanner

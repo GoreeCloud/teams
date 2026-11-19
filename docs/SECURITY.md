@@ -68,6 +68,15 @@ See [BACKUPS.md](BACKUPS.md). Backups contain private messages and hashes:
 encrypt them at rest/off-host, apply GoreeShield retention policies and test
 restoration on staging. This is not a production recovery acceptance.
 
+## Attachment bundle backup boundaries
+
+The operator-controlled \`npm run backup:bundle\` workflow verifies a standalone
+SQLite snapshot and its referenced private file blobs before writing a
+completion marker. Backups remain plaintext and unsigned, and in-process
+integrity checks do not prove authenticity against a write-capable adversary.
+Off-host encryption, independent retention, operator recovery authorization,
+scheduled execution and production restore drills remain unverified.
+
 ## Attachment trust boundary (disabled by default)
 
 The optional attachment API rejects uploads without an explicitly injected,
