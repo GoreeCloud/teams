@@ -20,7 +20,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)
 - SQLite persistence with WAL, Argon2id password hashes and opaque sessions
 - Session listing and individual/other-session revocation in web, Linux and Android
-- Basic API tests, Flutter widget test, Linux desktop build and Android debug APK CI jobs
+- Basic API tests, Flutter widget test, Linux desktop and Android APK CI jobs with temporary debug artifacts
 
 **Not yet supported:** file attachments, editing group membership, voice/video calls, advanced
 permissions, E2EE, complete mobile notifications, offline synchronization,
