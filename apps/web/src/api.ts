@@ -1,9 +1,9 @@
 export type User = { id: string; username: string; displayName: string };
 export type Workspace = { id: string; name: string; role: "owner"|"admin"|"member" };
-export type Channel = { id: string; name: string; workspaceId: string; isPrivate: number };
+export type Channel = { id: string; name: string; workspaceId: string; isPrivate: number; kind?: "channel"|"dm"; peerName?: string; peerId?: string };
 export type Reaction = { emoji: string; count: number };
 export type Message = { id: string; channelId: string; authorId: string; author: string; body: string; parentId: string|null; createdAt: string; editedAt: string|null; deletedAt: string|null; reactions: Reaction[] };
-export type Event = { type: string; channelId?: string; message?: Message };
+export type Event = { type: string; channelId?: string; message?: Message; workspaceId?: string; conversation?: Channel };
 export async function api<T>(url: string, method = "GET", body?: object): Promise<T> {
   const response = await fetch("/api" + url, {
     method, credentials: "same-origin",
