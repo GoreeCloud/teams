@@ -106,6 +106,8 @@ export default function App() {
   const [showNewDm, setShowNewDm] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [channelMembers, setChannelMembers] = useState<Member[]>([]);
+  const [channelMemberBusy, setChannelMemberBusy] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionBusy, setSessionBusy] = useState(false);
@@ -143,6 +145,7 @@ export default function App() {
     }).catch(err => { if (active) setNotice(errorMessage(err)); });
     return () => { active = false; };
   }, [workspace]);
+  useEffect(() => { setShowAddMember(false); setChannelMembers([]); }, [channel?.id]);
   useEffect(() => {
     let active = true;
     setMessages([]); setThread(null); setHasOlder(false); setLoadingOlder(false);
@@ -222,6 +225,27 @@ export default function App() {
         setDms(previous => [conversation, ...previous.filter(dm => dm.id !== conversation.id)]);
         return;
       }
+      if (event.type === "channel.added" && event.channel && event.workspaceId === workspace?.id) {
+        const added = event.channel;
+        setChannels(previous => [...previous.filter(ch => ch.id !== added.id), added]);
+        return;
+      }
+      if (event.type === "channel.removed" && event.channelId && event.workspaceId === workspace?.id) {
+        const removedId = event.channelId;
+        setChannels(previous => previous.filter(ch => ch.id !== removedId));
+        if (currentChannelId.current === removedId) {
+          setChannel(null);
+          setThread(null); setSearchResults(null); setShowAddMember(false); setChannelMembers([]);
+        }
+        return;
+      }
+      if (event.type === "channel.membership_updated" && event.channelId === channel?.id) {
+        const id = event.channelId;
+        void api<Member[]>("/channels/" + id + "/members")
+          .then(data => { if (currentChannelId.current === id) setChannelMembers(data); })
+          .catch(() => {});
+        return;
+      }
       if (!event.message || event.channelId !== channel?.id) return;
       const m = event.message;
       const apply = (list: Message[]) => event.type === "message.created"
@@ -274,14 +298,39 @@ export default function App() {
       setChannels(prev => [...prev, ch].sort((a, b) => a.name.localeCompare(b.name))); setChannel(ch); setShowNewChannel(false);
     } catch (err) { setNotice(errorMessage(err)); }
   };
+  const openChannelMembers = async () => {
+    if (!channel || !workspace || !channel.isPrivate || workspace.role === "member") return;
+    const id = channel.id;
+    setChannelMemberBusy(true);
+    try {
+      const data = await api<Member[]>("/channels/" + id + "/members");
+      if (currentChannelId.current === id) { setChannelMembers(data); setShowAddMember(true); }
+    } catch (err) { setNotice(errorMessage(err)); }
+    finally { setChannelMemberBusy(false); }
+  };
   const addChannelMember = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!channel || !workspace || (channel.kind && channel.kind !== "channel") || !channel.isPrivate || workspace.role === "member") return;
-    const username = String(new FormData(e.currentTarget).get("username") || "");
+    const id = channel.id;
+    const form = e.currentTarget;
+    const username = String(new FormData(form).get("username") || "");
+    setChannelMemberBusy(true);
     try {
-      await api("/channels/" + channel.id + "/members", "POST", { username });
-      setShowAddMember(false);
+      await api("/channels/" + id + "/members", "POST", { username });
+      const updated = await api<Member[]>("/channels/" + id + "/members");
+      if (currentChannelId.current === id) { setChannelMembers(updated); form.reset(); }
     } catch (err) { setNotice(errorMessage(err)); }
+    finally { setChannelMemberBusy(false); }
+  };
+  const removeChannelMember = async (person: Member) => {
+    if (!channel || !window.confirm("Remove @" + person.username + " from this private channel? Their access to its history ends immediately.")) return;
+    const id = channel.id;
+    setChannelMemberBusy(true);
+    try {
+      await api("/channels/" + id + "/members/" + person.id, "DELETE");
+      if (currentChannelId.current === id) setChannelMembers(previous => previous.filter(item => item.id !== person.id));
+    } catch (err) { setNotice(errorMessage(err)); }
+    finally { setChannelMemberBusy(false); }
   };
   const newDirectMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault(); if (!workspace) return;
@@ -387,7 +436,7 @@ export default function App() {
         <header className="channel-header"><div className="channel-heading"><div className="channel-identity"><div className="channel-heading-icon">{channel.kind === "group_dm" ? <Users size={24}/> : channel.kind === "dm" ? <MessageCircle size={24}/> : channel.isPrivate ? <LockKeyhole size={24}/> : <Hash size={26}/>}</div>
           <div><h1>{channel.kind === "dm" ? channel.peerName || channel.name : channel.name}</h1><p>{channel.kind === "group_dm" ? "Private group conversation · fixed membership" : channel.kind === "dm" ? "Private conversation · visible only to participants" : channel.isPrivate ? "Private channel" : "Open to everyone in this workspace"}</p></div></div><div className="channel-members">
           {channel.isPrivate && (!channel.kind || channel.kind === "channel") && workspace?.role !== "member"
-            ? <button className="add-channel-member" onClick={() => setShowAddMember(true)}><UserPlus size={18}/> Add member</button>
+            ? <button className="add-channel-member" disabled={channelMemberBusy} onClick={() => void openChannelMembers()}><UserPlus size={18}/> Manage members</button>
             : <><Users size={18}/><span>{channel.kind === "group_dm" ? (channel.memberCount || 3) + " participants" : channel.kind === "dm" ? "Two participants" : "Team space"}</span></>}
         </div></div></header>
         <div className="message-scroll" ref={scrollViewport} role="log" aria-label={"Messages in " + channel.name}>
@@ -425,14 +474,24 @@ export default function App() {
       </div>
     </div>}
     {showAddMember && channel && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddMember(false); }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Add private channel member">
-        <header><h2>Add channel member</h2><button aria-label="Close dialog" onClick={() => setShowAddMember(false)}><X size={20}/></button></header>
-        <form onSubmit={addChannelMember}><p className="muted">Add a workspace teammate to #{channel.name}. They will be able to read its message history.</p>
-          <label>Workspace teammate<select name="username" defaultValue="" required>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Manage private channel members">
+        <header><h2>Members of #{channel.name}</h2><button aria-label="Close dialog" onClick={() => setShowAddMember(false)}><X size={20}/></button></header>
+        <p className="muted">Only listed members can read this private channel. Removing someone immediately revokes their access to its history.</p>
+        <div className="session-list">
+          {channelMembers.map(person => <div key={person.id} className="session-item">
+            <div><strong>{person.displayName}</strong><p className="muted">@{person.username} · {person.role}</p></div>
+            {person.id !== user.id && person.role !== "owner" && <button type="button" disabled={channelMemberBusy}
+              onClick={() => void removeChannelMember(person)}>Remove</button>}
+          </div>)}
+        </div>
+        <form onSubmit={addChannelMember}>
+          <label>Add workspace teammate<select name="username" defaultValue="" required>
             <option value="" disabled>Select a teammate</option>
-            {members.filter(m => m.id !== user.id).map(m => <option key={m.id} value={m.username}>{m.displayName} (@{m.username})</option>)}
+            {members.filter(m => !channelMembers.some(current => current.id === m.id)).map(m =>
+              <option key={m.id} value={m.username}>{m.displayName} (@{m.username})</option>)}
           </select></label>
-          <button className="primary-button" type="submit" disabled={!members.some(m => m.id !== user.id)}>Add member</button>
+          <button className="primary-button" type="submit"
+            disabled={channelMemberBusy || !members.some(m => !channelMembers.some(existing => existing.id === m.id))}>Add member</button>
         </form>
       </div>
     </div>}
