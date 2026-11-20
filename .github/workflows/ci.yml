@@ -77,3 +77,50 @@ jobs:
           path: apps/native/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+  web-browser-acceptance:
+    name: web-browser-acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # verified official checkout v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # verified official setup-node v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install locked Teams source dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build the real React Teams web bundle
+        run: npm run build
+      - name: Install independent Playwright Core and matching Chromium in ephemeral runner
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright-core@1.64.1
+          node node_modules/playwright-core/cli.js install --with-deps chromium
+      - name: Resolve exact installed browser paths
+        run: |
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright-core';
+          import { existsSync,realpathSync,appendFileSync } from 'node:fs';
+          const locations = {
+            GC_TEAMS_PLAYWRIGHT_CORE: realpathSync('./node_modules/playwright-core/index.mjs'),
+            GC_TEAMS_CHROME_BIN: chromium.executablePath()
+          };
+          for (const [name,path] of Object.entries(locations)) {
+            if(!path.startsWith('/')||!existsSync(path))throw Error('Browser runtime missing: '+name);
+            appendFileSync(process.env.GITHUB_ENV,name+'='+path+'\n');
+          }
+          NODE
+      - name: Verify synthetic Teams login, native focus, OS theme switching and reflow
+        run: |
+          mkdir -p apps/web/qa/screenshots
+          GC_TEAMS_QA_SCREENSHOTS_DIR="$GITHUB_WORKSPACE/apps/web/qa/screenshots" node apps/web/qa/browser-acceptance.mjs
+      - name: Preserve only synthetic login screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # verified official v4
+        with:
+          name: teams-web-synthetic-browser-evidence
+          path: apps/web/qa/screenshots/teams-*.png
+          if-no-files-found: warn
+          retention-days: 7
