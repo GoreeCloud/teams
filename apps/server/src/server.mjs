@@ -681,12 +681,14 @@ export function createServer({
   app.delete("/api/messages/:messageId/save", { preHandler: requireUser }, async (req) => {
     // Unsave is account-scoped even if private channel access was removed.
     // It cannot return metadata about the message or channel to callers.
-    db.prepare("DELETE FROM saved_messages WHERE user_id=? AND message_id=?")
-      .run(req.actor.id,req.params.messageId);
-    const message = messageById(req.params.messageId);
+    const removed = db.prepare("DELETE FROM saved_messages WHERE user_id=? AND message_id=?")
+      .run(req.actor.id,req.params.messageId).changes;
+    // A guessed message UUID must not reveal another conversation's existence,
+    // workspace or membership through even a self-scoped event.
+    const message = removed ? messageById(req.params.messageId) : null;
     const ch = message ? db.prepare("SELECT workspace_id AS workspaceId FROM channels WHERE id=?")
       .get(message.channel_id) : null;
-    if (ch) broadcastToUser(req.actor.id,{
+    if (removed && ch) broadcastToUser(req.actor.id,{
       type:"saved.changed",workspaceId:ch.workspaceId,messageId:req.params.messageId,saved:false
     });
     return { saved:false };

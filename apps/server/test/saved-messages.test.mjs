@@ -175,6 +175,10 @@ test("save state events are self-scoped across sessions, never broadcast to team
     assert.equal(updates[0].message,undefined);
   }
   assert.equal(events[2].some(e=>e.type==="saved.changed"),false);
+  assert.equal((await unsave(app,bob,original.json().id)).statusCode,200);
+  await new Promise(resolve=>setTimeout(resolve,40));
+  assert.equal(events[2].some(e=>e.type==="saved.changed"),false,
+    "unknown bookmarks cannot reveal another user's message through events");
   assert.equal((await unsave(app,second,original.json().id)).statusCode,200);
   await new Promise(resolve=>setTimeout(resolve,80));
   assert.equal(events[0].filter(e=>e.type==="saved.changed"&&e.saved===false).length,1);
