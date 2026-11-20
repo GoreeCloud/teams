@@ -11,6 +11,7 @@
     "build": "npm run build -w @goreecloud/teams-web",
     "test": "npm run test -w @goreecloud/teams-server",
     "backup": "node scripts/backup.mjs",
+    "backup:bundle": "node scripts/backup-bundle.mjs",
     "verify:action-pins": "node --test scripts/verify-action-pins.test.mjs && node scripts/verify-action-pins.mjs",
     "test:realtime": "node --test apps/web/test/*.test.mjs",
     "check": "npm run verify:action-pins && npm run check -w @goreecloud/teams-web && npm run test:realtime && npm test && npm run build"

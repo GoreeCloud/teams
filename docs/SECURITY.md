@@ -16,6 +16,11 @@
   inaccessible bookmarks. Teammates never receive save-state events.
   The feature does not imply encrypted storage or a complete retention policy.
   See [SAVED_MESSAGES.md](SAVED_MESSAGES.md).
+- **Pinned content**: Pin lists and mutations use the same channel/private
+  conversation authorization as messages. Any authorized participant can pin;
+  the pinner or a workspace administrator/owner with access can unpin.
+  Soft-deleting messages removes corresponding pins; pinned text is not copied
+  into a separate public index. A 50-pin limit restricts unbounded accumulation.
 - **Unread/read privacy**: The server stores only the account, channel and
   last-read root-message timestamp/ID in SQLite. Read markers are monotonic,
   channel-authorized and visible to the account's own active sessions only;
@@ -68,6 +73,15 @@ committed WAL state to a private, integrity-checked, no-overwrite snapshot.
 See [BACKUPS.md](BACKUPS.md). Backups contain private messages and hashes:
 encrypt them at rest/off-host, apply GoreeShield retention policies and test
 restoration on staging. This is not a production recovery acceptance.
+
+## Attachment bundle backup boundaries
+
+The operator-controlled \`npm run backup:bundle\` workflow verifies a standalone
+SQLite snapshot and its referenced private file blobs before writing a
+completion marker. Backups remain plaintext and unsigned, and in-process
+integrity checks do not prove authenticity against a write-capable adversary.
+Off-host encryption, independent retention, operator recovery authorization,
+scheduled execution and production restore drills remain unverified.
 
 ## Attachment trust boundary (disabled by default)
 

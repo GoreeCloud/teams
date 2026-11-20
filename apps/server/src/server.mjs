@@ -96,10 +96,13 @@ export function createServer({
     const reactions = db.prepare(
       "SELECT emoji, count(*) AS count FROM reactions WHERE message_id=? GROUP BY emoji ORDER BY emoji"
     ).all(m.id);
+    const pinned = db.prepare("SELECT pinned_by AS pinnedBy,pinned_at AS pinnedAt FROM pinned_messages WHERE message_id=?")
+      .get(m.id);
     return { id: m.id, channelId: m.channel_id, authorId: m.author_id,
       author: getUser(m.author_id)?.displayName || "Unknown", body: m.deleted_at ? "" : m.body,
       parentId: m.parent_id, createdAt: m.created_at, editedAt: m.edited_at,
       deletedAt: m.deleted_at, reactions,
+      pinnedBy: pinned?.pinnedBy || null, pinnedAt: pinned?.pinnedAt || null,
       attachments: m.deleted_at ? [] : db.prepare(
         "SELECT id, filename, mime_type AS mimeType, size FROM attachments WHERE message_id=? ORDER BY created_at, id"
       ).all(m.id) };
@@ -730,6 +733,49 @@ export function createServer({
     params.push(limit);
     return db.prepare(query).all(...params).reverse().map(publicMessage);
   });
+  app.get("/api/channels/:channelId/pins", { preHandler: requireUser }, async (req, reply) => {
+    const ch = requireChannel(req, reply, req.params.channelId);
+    if (!ch) return;
+    return db.prepare(`SELECT m.* FROM pinned_messages p
+      JOIN messages m ON m.id=p.message_id
+      WHERE p.channel_id=? AND m.deleted_at IS NULL
+      ORDER BY p.pinned_at DESC,p.message_id DESC LIMIT 50`)
+      .all(ch.id).map(publicMessage);
+  });
+  app.post("/api/messages/:messageId/pin", { preHandler: requireUser }, async (req, reply) => {
+    const message = messageById(req.params.messageId);
+    if (!message || !requireChannel(req, reply, message.channel_id)) return;
+    if (message.deleted_at) return error(reply, 409, "Message deleted");
+    const result = db.transaction(() => {
+      if (db.prepare("SELECT 1 FROM pinned_messages WHERE message_id=?").get(message.id)) return "exists";
+      if (db.prepare("SELECT count(*) AS count FROM pinned_messages WHERE channel_id=?")
+        .get(message.channel_id).count >= 50) return "limit";
+      db.prepare("INSERT INTO pinned_messages(message_id,channel_id,pinned_by,pinned_at) VALUES(?,?,?,?)")
+        .run(message.id, message.channel_id, req.actor.id, now());
+      return "created";
+    })();
+    if (result === "limit") return error(reply, 409, "Channel can pin up to 50 messages");
+    const updated = publicMessage(messageById(message.id));
+    if (result === "created") {
+      broadcast(message.channel_id, { type: "message.updated", channelId: message.channel_id, message: updated });
+    }
+    return updated;
+  });
+  app.delete("/api/messages/:messageId/pin", { preHandler: requireUser }, async (req, reply) => {
+    const message = messageById(req.params.messageId);
+    if (!message || !requireChannel(req, reply, message.channel_id)) return;
+    const pinned = db.prepare("SELECT pinned_by AS pinnedBy FROM pinned_messages WHERE message_id=?")
+      .get(message.id);
+    if (!pinned) return error(reply, 404, "Message is not pinned");
+    const role = workspaceRole(req.actor.id, channelFor(req.actor.id, message.channel_id).workspaceId);
+    if (pinned.pinnedBy !== req.actor.id && role === "member") {
+      return error(reply, 403, "Only the pinner or an admin can unpin");
+    }
+    db.prepare("DELETE FROM pinned_messages WHERE message_id=?").run(message.id);
+    const updated = publicMessage(messageById(message.id));
+    broadcast(message.channel_id, { type: "message.updated", channelId: message.channel_id, message: updated });
+    return updated;
+  });
   app.post("/api/channels/:channelId/messages", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);
     if (!ch) return;
@@ -762,8 +808,7 @@ export function createServer({
     if (!old || !requireChannel(req, reply, old.channel_id)) return;
     const role = workspaceRole(req.actor.id, channelFor(req.actor.id, old.channel_id).workspaceId);
     if (old.author_id !== req.actor.id && role === "member") return error(reply, 403, "Insufficient permissions");
-    // Revoke download access and purge stored bytes during message deletion.
-    // A failed local unlink fails closed instead of reporting successful erasure.
+    // Attachment bytes must be purged before the message or pin disappears.
     const stored = db.prepare("SELECT id FROM attachments WHERE message_id=?").all(old.id);
     try {
       for (const item of stored) deletePrivateAttachment(attachmentDirectory, item.id);
@@ -773,6 +818,7 @@ export function createServer({
     db.transaction(() => {
       db.prepare("DELETE FROM attachments WHERE message_id=?").run(old.id);
       db.prepare("DELETE FROM saved_messages WHERE message_id=?").run(old.id);
+      db.prepare("DELETE FROM pinned_messages WHERE message_id=?").run(old.id);
       db.prepare("UPDATE messages SET body='',deleted_at=? WHERE id=? AND deleted_at IS NULL").run(now(), old.id);
     })();
     const message = publicMessage(messageById(old.id));

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Bookmark, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil } from "lucide-react";
+import { ArrowLeft, Hash, LockKeyhole, LogOut, Menu, MessageCircle, MoreHorizontal, Plus, Bookmark, Reply, Search, Send, ShieldCheck, Smile, Sparkles, Trash2, UserPlus, Users, X, Pencil, Pin, PinOff } from "lucide-react";
 import { api, connectEvents, reconcileRecentMessages, type Channel, type Event, type Member, type Message, type SessionInfo, type SavedEntry, type UnreadInfo, type User, type Workspace } from "./api";
 
 const shortTime = (value: string) => new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -47,14 +47,15 @@ function Welcome({ bootstrap, onLogin }: { bootstrap: boolean; onLogin: () => vo
     </aside>
   </main>;
 }
-function MessageRow({ message, me, onReply, onReaction, onEdit, onDelete, onSave, saved, saving }: {
+function MessageRow({ message, me, onReply, onReaction, onEdit, onDelete, onSave, saved, saving, onPin, canModerate = false }: {
   message: Message; me: User; onReply: (message: Message) => void; onReaction: (message: Message, emoji: string) => void;
   onEdit: (message: Message) => void; onDelete: (message: Message) => void;
   onSave: (message: Message) => void; saved: boolean; saving: boolean;
+  onPin?: (message: Message) => void; canModerate?: boolean;
 }) {
   return <article className="message" aria-label={"Message from " + message.author}>
     <Avatar name={message.author}/>
-    <div className="message-content"><div className="message-head"><strong>{message.author}</strong><time dateTime={message.createdAt}>{shortTime(message.createdAt)}</time>{message.editedAt && <span className="edited">edited</span>}</div>
+    <div className="message-content"><div className="message-head"><strong>{message.author}</strong><time dateTime={message.createdAt}>{shortTime(message.createdAt)}</time>{message.editedAt && <span className="edited">edited</span>}{message.pinnedBy && <span className="pinned-indicator"><Pin size={12}/> Pinned</span>}</div>
       {message.deletedAt ? <p className="deleted">Message deleted</p> : <p className="message-body">{message.body}</p>}
       <div className="reaction-row">{message.reactions.map(reaction =>
         <button key={reaction.emoji} className="reaction" onClick={() => onReaction(message, reaction.emoji)} aria-label={"Toggle " + reaction.emoji + " reaction"}>{reaction.emoji} {reaction.count}</button>)}
@@ -63,6 +64,8 @@ function MessageRow({ message, me, onReply, onReaction, onEdit, onDelete, onSave
     {!message.deletedAt && <div className="message-actions">
       <button title={saved ? "Remove from saved" : "Save for later"} aria-label={saved ? "Remove saved message" : "Save message for later"} aria-pressed={saved} disabled={saving} onClick={() => onSave(message)}><Bookmark size={17} fill={saved ? "currentColor" : "none"}/></button>
       <button title="React with thumbs up" aria-label="React with thumbs up" onClick={() => onReaction(message, "👍")}><Smile size={17}/></button>
+      {onPin && (!message.pinnedBy || message.pinnedBy === me.id || canModerate) &&
+        <button title={message.pinnedBy ? "Unpin message" : "Pin message"} aria-label={message.pinnedBy ? "Unpin message" : "Pin message"} onClick={() => onPin(message)}>{message.pinnedBy ? <PinOff size={16}/> : <Pin size={16}/>}</button>}
       {!message.parentId && <button title="Reply in thread" aria-label="Reply in thread" onClick={() => onReply(message)}><Reply size={17}/></button>}
       {message.authorId === me.id && <button title="Edit message" aria-label="Edit message" onClick={() => onEdit(message)}><Pencil size={16}/></button>}
       {message.authorId === me.id && <button title="Delete message" aria-label="Delete message" onClick={() => onDelete(message)}><Trash2 size={16}/></button>}
@@ -101,6 +104,9 @@ export default function App() {
   const [loadingOlderReplies, setLoadingOlderReplies] = useState(false);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Message[]|null>(null);
+  const [showPins, setShowPins] = useState(false);
+  const [pins, setPins] = useState<Message[]>([]);
+  const [pinsLoading, setPinsLoading] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string,number>>({});
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [savedEntries, setSavedEntries] = useState<SavedEntry[]>([]);
@@ -254,7 +260,7 @@ export default function App() {
   useEffect(() => { setShowAddMember(false); setChannelMembers([]); }, [channel?.id]);
   useEffect(() => {
     let active = true;
-    setMessages([]); setThread(null); setHasOlder(false); setLoadingOlder(false);
+    setMessages([]); setThread(null); setHasOlder(false); setLoadingOlder(false); setShowPins(false); setPins([]);
     if (channel) {
       void api<Message[]>("/channels/" + channel.id + "/messages")
         .then(data => {
@@ -417,6 +423,14 @@ export default function App() {
         : list.map(item => item.id === m.id ? m : item);
       if (m.parentId) setReplies(prev => apply(prev));
       else setMessages(prev => apply(prev));
+      if (event.type === "message.updated") {
+        setPins(previous => {
+          const present = previous.some(item => item.id === m.id);
+          if (present && !m.pinnedBy) return previous.filter(item => item.id !== m.id);
+          if (present) return previous.map(item => item.id === m.id ? m : item);
+          return m.pinnedBy ? [m, ...previous].slice(0,50) : previous;
+        });
+      }
       if (thread?.id === m.id) setThread(m);
     }, () => {
       if (!active) return;
@@ -504,6 +518,31 @@ export default function App() {
       if (workspace && savedVisible.current) void refreshSavedEntries(workspace.id);
     }
     catch (err) { setNotice(errorMessage(err)); }
+  };
+  const canModeratePins = workspace?.role === "owner" || workspace?.role === "admin";
+  const togglePin = async (message: Message) => {
+    try {
+      const updated = await api<Message>("/messages/" + message.id + "/pin", message.pinnedBy ? "DELETE" : "POST");
+      setMessages(previous => previous.map(item => item.id === updated.id ? updated : item));
+      setReplies(previous => previous.map(item => item.id === updated.id ? updated : item));
+      setSearchResults(previous => previous?.map(item => item.id === updated.id ? updated : item) || null);
+      setThread(previous => previous?.id === updated.id ? updated : previous);
+      if (currentChannelId.current === updated.channelId) {
+        setPins(previous => updated.pinnedBy
+          ? [updated, ...previous.filter(item => item.id !== updated.id)].sort((a,b) => (b.pinnedAt || "").localeCompare(a.pinnedAt || "")).slice(0,50)
+          : previous.filter(item => item.id !== updated.id));
+      }
+    } catch (err) { setNotice(errorMessage(err)); }
+  };
+  const openPins = async () => {
+    if (!channel) return;
+    const id = channel.id;
+    setShowPins(true); setPinsLoading(true); setPins([]);
+    try {
+      const data = await api<Message[]>("/channels/" + id + "/pins");
+      if (currentChannelId.current === id) setPins(data);
+    } catch (err) { if (currentChannelId.current === id) setNotice(errorMessage(err)); }
+    finally { if (currentChannelId.current === id) setPinsLoading(false); }
   };
   const doSearch = async (e: React.FormEvent) => {
     e.preventDefault(); if (!workspace || search.trim().length < 2) return;
@@ -692,11 +731,12 @@ export default function App() {
           {channel.isPrivate && (!channel.kind || channel.kind === "channel") && workspace?.role !== "member"
             ? <button className="add-channel-member" disabled={channelMemberBusy} onClick={() => void openChannelMembers()}><UserPlus size={18}/> Manage members</button>
             : <><Users size={18}/><span>{channel.kind === "group_dm" ? (channel.memberCount || 3) + " participants" : channel.kind === "dm" ? "Two participants" : "Team space"}</span></>}
+          <button type="button" className="view-pins" aria-label="View pinned messages" onClick={() => void openPins()}><Pin size={17}/> Pins</button>
         </div></div></header>
         <div className="message-scroll" ref={scrollViewport} role="log" aria-label={"Messages in " + channel.name}>
           {hasOlder && <button className="load-older" type="button" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</button>}
           <div className="channel-intro"><span className="intro-icon">{channel.kind === "group_dm" ? <Users size={26}/> : channel.kind === "dm" ? <MessageCircle size={26}/> : <Hash size={26}/>}</span><h2>{channel.kind === "group_dm" ? channel.name : channel.kind === "dm" ? "Conversation with " + (channel.peerName || channel.name) : "Welcome to #" + channel.name}</h2><p>{channel.kind === "group_dm" ? "Only the invited group members can see these messages. Group membership is fixed in this development preview." : channel.kind === "dm" ? "Only you and this teammate can see this conversation. Messages are stored on your Teams server." : "This is the beginning of the conversation. Share updates, ask questions, and keep moving forward together."}</p></div>
-          {messages.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(m.id)} saving={savingMessageId === m.id}/>)}
+          {messages.map(m => <MessageRow key={m.id} message={m} me={user} onReply={setThread} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(m.id)} saving={savingMessageId === m.id} onPin={togglePin} canModerate={canModeratePins}/>) }
           <div ref={scrollAnchor} />
         </div>
         <div className="composer-wrap"><Composer key={channel.id} channelName={channel.peerName || channel.name} direct={channel.kind === "dm" || channel.kind === "group_dm"} onSend={body => send(body)}/></div>
@@ -704,11 +744,24 @@ export default function App() {
     </main>
     {thread && !showSaved && <aside className="thread-panel" aria-label="Thread">
       <header><strong>Thread</strong><button aria-label="Close thread" onClick={() => setThread(null)}><X size={20}/></button></header>
-      <div className="thread-scroll" ref={threadViewport}><MessageRow message={thread} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(thread.id)} saving={savingMessageId === thread.id}/>
+      <div className="thread-scroll" ref={threadViewport}><MessageRow message={thread} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(thread.id)} saving={savingMessageId === thread.id} onPin={togglePin} canModerate={canModeratePins}/>
         <div className="replies-caption">{replies.length} loaded {replies.length === 1 ? "reply" : "replies"}</div>
         {hasOlderReplies && <button className="load-older" type="button" disabled={loadingOlderReplies} onClick={() => void loadOlderReplies()}>{loadingOlderReplies ? "Loading earlier replies…" : "Load earlier replies"}</button>}
-        {replies.map(m => <MessageRow key={m.id} message={m} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(m.id)} saving={savingMessageId === m.id}/>)}
+        {replies.map(m => <MessageRow key={m.id} message={m} me={user} onReply={() => {}} onReaction={react} onEdit={edit} onDelete={remove} onSave={m => void toggleSaved(m)} saved={savedIds.has(m.id)} saving={savingMessageId === m.id} onPin={togglePin} canModerate={canModeratePins}/>) }
       </div><div className="composer-wrap"><Composer key={thread.id} channelName={channel?.name || ""} parent onSend={body => send(body, thread.id)}/></div></aside>}
+    {showPins && channel && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowPins(false); }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Pinned messages">
+        <header><h2>Pinned messages</h2><button aria-label="Close dialog" onClick={() => setShowPins(false)}><X size={20}/></button></header>
+        <p className="muted">Up to 50 messages can be pinned in this conversation. Only the pinner or a workspace administrator can remove someone else's pin.</p>
+        {pinsLoading && <p className="muted" aria-live="polite">Loading pins…</p>}
+        <div className="pins-list">{pins.map(item => <div className="pinned-entry" key={item.id}>
+          <div><strong>{item.author}</strong><p>{item.body}</p></div>
+          {(item.pinnedBy === user.id || canModeratePins) && <button type="button" title="Unpin message" aria-label={"Unpin message by " + item.author} onClick={() => void togglePin(item)}><PinOff size={16}/></button>}
+        </div>)}
+        {!pinsLoading && pins.length === 0 && <p className="empty">No pinned messages yet.</p>}
+        </div>
+      </div>
+    </div>}
     {showSessions && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setShowSessions(false); }}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="Your active sessions">
         <header><h2>Account sessions</h2><button aria-label="Close dialog" onClick={() => setShowSessions(false)}><X size={20}/></button></header>
