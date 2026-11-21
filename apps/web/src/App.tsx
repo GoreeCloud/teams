@@ -233,8 +233,19 @@ export default function App() {
     setChannel(target); setThread(null); setSearchResults(null); setShowSaved(false);
   };
   const refreshSession = useCallback(async () => {
-    try { const r = await api<{user:User}>("/me"); setUser(r.user); }
-    catch { setUser(null); const r = await api<{bootstrapAvailable:boolean;bootstrapTokenRequired:boolean}>("/config"); setBootstrap(r.bootstrapAvailable); setRequireOwnerToken(r.bootstrapTokenRequired); }
+    try {
+      const r = await api<{user:User}>("/me");
+      setUser(r.user);
+      // A successful account session proves initial owner setup completed.
+      // Do not offer the first-owner form after sign-out in this same tab.
+      setBootstrap(false);
+      setRequireOwnerToken(false);
+    } catch {
+      setUser(null);
+      const r = await api<{bootstrapAvailable:boolean;bootstrapTokenRequired:boolean}>("/config");
+      setBootstrap(r.bootstrapAvailable);
+      setRequireOwnerToken(r.bootstrapTokenRequired);
+    }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void refreshSession(); }, [refreshSession]);

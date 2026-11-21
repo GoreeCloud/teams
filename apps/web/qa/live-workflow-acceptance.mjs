@@ -96,12 +96,19 @@ try {
     await article.locator('button[aria-label="Remove saved message"]')
       .waitFor({state:"attached"});
     await article.focus();
+    const pinResponse=page.waitForResponse(response=>
+      response.url().includes("/api/messages/") &&
+      response.url().endsWith("/pin") &&
+      response.request().method()==="POST");
     await article.getByRole("button",{name:"Pin message"}).click();
+    assert.equal((await pinResponse).status(),200,
+      "pin mutation must succeed with no request body");
     await article.locator(".pinned-indicator").waitFor();
     await page.getByRole("button",{name:"View pinned messages"}).click();
     const pins=page.getByRole("dialog",{name:"Pinned messages"});
     await pins.waitFor();
-    assert.ok((await pins.innerText()).includes(message));
+    // Fetching the pins list is asynchronous; the dialog itself opens first.
+    await pins.locator(".pinned-entry").filter({hasText:message}).waitFor();
     await pins.getByRole("button",{name:"Close dialog"}).click();
     await page.getByRole("button",{name:"Saved messages"}).click();
     await page.getByRole("heading",{name:"Saved for later"}).waitFor();
