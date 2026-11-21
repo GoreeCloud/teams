@@ -84,9 +84,14 @@ stable random IDs with an unknown creation timestamp. Each revoked session's
 active WebSockets close immediately. Web and Flutter clients treat a server
 WebSocket policy-close (1008) as revocation and return to sign-in without
 persisting the invalid token; ordinary transport closures do not force logout.
-Session administration is not MFA/SSO or
-full multi-device identity governance; expired but idle sockets close on the
-next event rather than on an independent periodic expiration sweep.
+Session administration is not MFA/SSO or full multi-device Identity
+governance. The server now also checks every open WebSocket's persisted
+session in a bounded **60-second unref'd idle sweep**, closing invalid sessions
+with policy code 1008 even when no messages or API events occur. This reduces
+stale transport lifetime but cannot guarantee instantaneous expiry on an
+inactive connection, and is not a distributed session revocation system.
+The sweep stops when the server shuts down; no IPs, User-Agent strings, device
+fingerprints or bearer secrets are added to transport state.
 
 ## Verified snapshot implementation
 

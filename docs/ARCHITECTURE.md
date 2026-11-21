@@ -80,7 +80,11 @@ All clients ───────WebSocket───┘         └── Scoped 
   fetches the most recent root/thread pages, retaining messages newer than the
   fetched snapshot. Replaced older pages can be loaded again; **events beyond
   the latest 50 root/reply messages are not guaranteed to be recovered**.
-  Session-policy closure (1008) never reconnects automatically.
+  Session-policy closure (1008) never reconnects automatically. In addition
+  to event-time session checks, a non-blocking 60-second periodic sweep
+  proactively closes expired/revoked idle WebSockets without broadcasting
+  to other sessions or collecting device identity. The sweep interval can be
+  shortened only by a bounded server factory option for synthetic tests.
   No durable event queue, background notification delivery or offline conflict
   resolution.
 - MIPS: design tokens are an alpha dependency; GoreeShield (privacy),
