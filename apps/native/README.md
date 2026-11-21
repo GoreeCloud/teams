@@ -16,7 +16,10 @@ flutter build apk --debug
 ```
 
 The client prompts for a self-hosted Teams server and refuses remote HTTP
-without TLS. Bearer tokens are held in memory, not persisted across restarts.
+without TLS. Bearer tokens are held in memory, not persisted across restarts. For
+first-owner setup of a persisted/hosted server, the Linux and Android login
+forms request an obscured operator token from the separately secured server
+configuration. The value is cleared after authentication, not saved locally.
 It implements channels, private one-to-one and group conversations, a workspace-scoped teammate
 directory, owner/admin private-channel membership management, message threads,
 scoped search, edits, deletion, reactions, up to 50 permission-scoped pinned

@@ -17,7 +17,7 @@ test("revoked and expired sessions stop receiving WebSocket events without affec
   { timeout: 10000 }, async t => {
     const folder = fs.mkdtempSync(path.join(os.tmpdir(), "teams-session-revoke-"));
     const databaseFile = path.join(folder, "test.sqlite");
-    const app = createServer({ databaseFile });
+    const app = createServer({ databaseFile, bootstrapToken: "synthetic-owner-setup-test-token-at-least-32-chars" });
     const sockets = [];
     t.after(async () => {
       for (const socket of sockets) socket.terminate();
@@ -26,7 +26,7 @@ test("revoked and expired sessions stop receiving WebSocket events without affec
     });
     const initial = await request(app, "POST", "/api/auth/register", null, {
       username: "test_owner", displayName: "Test Owner",
-      password: "synthetic-test-password-12345"
+      password: "synthetic-test-password-12345", bootstrapToken: "synthetic-owner-setup-test-token-at-least-32-chars"
     });
     assert.equal(initial.statusCode, 201, initial.body);
     const primary = initial.json().accessToken;

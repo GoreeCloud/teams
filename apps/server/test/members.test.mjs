@@ -10,7 +10,7 @@ const register = (app, username, invite) => request(app, "POST", "/api/auth/regi
   ...(invite ? { invite } : {})
 });
 test("member directory is workspace scoped and admins alone can add private-channel members", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async () => app.close());
   const first = await register(app, "workspace_owner");
   assert.equal(first.statusCode, 201, first.body);

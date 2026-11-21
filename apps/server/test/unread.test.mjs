@@ -42,7 +42,7 @@ const read = (app,ch,token,messageId) =>
   call(app,"POST","/api/channels/"+ch.id+"/read",token,{messageId});
 
 test("unread counts exclude own messages and replies, and read cursors cannot regress",async t=>{
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async()=>app.close());
   const {owner,bob,carol,workspace,general}=await fixture(app);
   assert.equal((await call(app,"GET","/api/workspaces/"+workspace.id+"/unread",null)).statusCode,401);
@@ -79,7 +79,7 @@ test("unread counts exclude own messages and replies, and read cursors cannot re
 });
 
 test("unread summary is isolated to authorized channels, including DM scopes",async t=>{
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async()=>app.close());
   const {owner,bob,carol,workspace,general}=await fixture(app);
   const p=await call(app,"POST","/api/workspaces/"+workspace.id+"/channels",owner,{
@@ -113,7 +113,7 @@ test("unread summary is isolated to authorized channels, including DM scopes",as
 });
 
 test("read acknowledgements fan out to own sessions, not other accounts",async t=>{
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   const sockets=[];
   t.after(async()=>{for(const socket of sockets)socket.terminate();await app.close();});
   const {owner,bob,general}=await fixture(app);

@@ -3,6 +3,8 @@ import { createServer } from "./server.mjs";
 const app = createServer({
   databaseFile: process.env.TEAMS_DB_PATH || "./data/teams.sqlite",
   siteOrigin: process.env.TEAMS_SITE_ORIGIN || "",
+  // First-owner setup secret is supplied by the operator, never by /api/config.
+  bootstrapToken: process.env.TEAMS_BOOTSTRAP_TOKEN || null,
   serveWeb: true,
   // Scanning is intentionally not wired into the shipped server. Providing a
   // private directory alone never enables uploads.

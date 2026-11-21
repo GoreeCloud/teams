@@ -9,7 +9,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 
 ## Implemented development-preview capabilities
 
-- Single-owner first-run setup, local user login, single-use 24-hour invites
+- Token-guarded first-owner setup on persistent/hosted servers, local user login, single-use 24-hour invites
 - Workspaces, public/private channels and channel access enforcement
 - Workspace member directory and admin-controlled private-channel membership additions/removals
 - One-to-one and 3–30-person private group conversations, with participant-only access and fixed group membership
@@ -50,10 +50,16 @@ npm run dev:web
 # open http://127.0.0.1:5173
 ```
 
-The first account created is the workspace owner, and new registrations then
-require an owner/admin-generated invite. Keep the server private until the first
-account has been created. Server default: `127.0.0.1:3030`. Vite forwards
-`/api` to the server, including WebSockets.
+The first account is the workspace owner. On persistent or web-serving
+servers, an operator must configure a private 32–256-character
+`TEAMS_BOOTSTRAP_TOKEN` and enter it in the **Owner setup token** field on the
+initial web or native setup screen. Create a random value with
+`openssl rand -hex 32`; never commit or disclose the value. In a local shell,
+export the variable before running `npm run dev:server`. After the first
+owner is created, later registrations require an owner/admin invitation and
+the bootstrap token is no longer used. Only deliberately opted-in, in-memory unit fixtures may bypass this gate
+using `allowUnsafeMemoryBootstrap`; all regular instances require the token.
+Server default: `127.0.0.1:3030`. Vite forwards `/api` including WebSockets.
 
 ```bash
 npm run check
@@ -111,7 +117,9 @@ Linux runners are included in the repository.
 
 ```bash
 cp .env.example .env
-# Set TEAMS_SITE_ORIGIN to your real HTTPS origin and configure a trusted TLS proxy
+# Set TEAMS_SITE_ORIGIN and a randomly generated TEAMS_BOOTSTRAP_TOKEN in .env.
+# Treat .env and Docker environment inspection as sensitive; do not paste secrets in logs.
+# Configure a trusted TLS proxy before exposing any service.
 docker compose up --build -d
 ```
 

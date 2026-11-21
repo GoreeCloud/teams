@@ -48,7 +48,7 @@ const save=(app,token,id) => call(app,"POST","/api/messages/"+id+"/save",token,{
 const unsave=(app,token,id) => call(app,"DELETE","/api/messages/"+id+"/save",token);
 
 test("saved messages are private to the account, permission-checked and reversible",async t=>{
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async()=>app.close());
   const {owner,bob,carol,workspace,general,privateChannel}=await fixture(app);
   const pub=await post(app,general,bob,"A public note");
@@ -106,7 +106,7 @@ test("saved messages are private to the account, permission-checked and reversib
 });
 
 test("saved list uses bounded keyset pagination with exact user and workspace authorization",async t=>{
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async()=>app.close());
   const {owner,bob,workspace,general}=await fixture(app);
   const route="/api/workspaces/"+workspace.id+"/saved";
@@ -138,7 +138,7 @@ test("saved list uses bounded keyset pagination with exact user and workspace au
 });
 
 test("save state events are self-scoped across sessions, never broadcast to teammates",async t=>{
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   const sockets=[];
   t.after(async()=>{for(const socket of sockets)socket.terminate();await app.close();});
   const {owner,bob,general,workspace}=await fixture(app);

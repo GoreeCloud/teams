@@ -16,7 +16,7 @@ const call = (app, method, url, secret, payload) => app.inject({
 
 test("user can list/revoke own sessions without revealing bearer hashes or affecting other accounts",
   { timeout: 10000 }, async t => {
-    const app = createServer();
+    const app = createServer({allowUnsafeMemoryBootstrap:true});
     const sockets = [];
     t.after(async () => {
       for (const socket of sockets) socket.terminate();
@@ -134,7 +134,7 @@ test("legacy sessions migrate to stable public IDs without inventing a creation 
 
 
 test("cookie-based session revocation requires matching origin, unlike bearer auth", async t => {
-  const app = createServer({ siteOrigin: "https://teams.example.test" });
+  const app = createServer({ allowUnsafeMemoryBootstrap:true, siteOrigin: "https://teams.example.test" });
   t.after(async () => app.close());
   const first = await call(app, "POST", "/api/auth/register", null, {
     username:"cookie_session_owner", displayName:"Owner",

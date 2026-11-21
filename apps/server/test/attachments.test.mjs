@@ -39,7 +39,7 @@ async function ownerAndChannel(app) {
 }
 
 test("attachment upload fails closed without configured scanning", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async () => app.close());
   const { ownerToken, general } = await ownerAndChannel(app);
   const route = "/api/channels/" + general.id + "/attachments";
@@ -55,6 +55,7 @@ test("scanned attachments require exact MIME, UTF-8, size and filename validatio
   let scans = 0;
   const directory = path.join(temp, "private");
   const app = createServer({
+    allowUnsafeMemoryBootstrap:true,
     attachmentDirectory: directory, scanAttachment: async () => {
       scans++; return { verdict: "clean" };
     }
@@ -94,6 +95,7 @@ test("clean attachments are private, signed-by-scanner fixtures only, and delete
   const directory = path.join(temp, "private");
   let verified = 0;
   const app = createServer({
+    allowUnsafeMemoryBootstrap:true,
     databaseFile: path.join(temp, "teams.sqlite"),
     attachmentDirectory: directory,
     scanAttachment: async ({bytes, filename, mimeType, sha256}) => {
@@ -159,6 +161,7 @@ test("malicious/indeterminate scanner results or storage tampering cannot publis
   const dir = path.join(temp, "storage");
   let verdict = "malicious";
   const app = createServer({
+    allowUnsafeMemoryBootstrap:true,
     attachmentDirectory: dir, scanAttachment: async () => {
       if (verdict === "throw") throw new Error("synthetic scanning outage");
       return { verdict };
@@ -190,6 +193,7 @@ test("upload authorization is rechecked when a scanner finishes after logout", a
   let called;
   const started = new Promise(resolve => { called = resolve; });
   const app = createServer({
+    allowUnsafeMemoryBootstrap:true,
     attachmentDirectory: path.join(temp, "attachments"),
     scanAttachment: async () => { called(); return gate; }
   });

@@ -77,7 +77,7 @@ const call = (app, method, url, payload) => app.inject({method, url, payload});
 
 test("API keeps generic wrong-password responses and throttles repeated failures",
   {timeout: 30000}, async t => {
-    const app = createServer();
+    const app = createServer({allowUnsafeMemoryBootstrap:true});
     t.after(async () => app.close());
     const owner = await call(app, "POST", "/api/auth/register", {
       username:"auth_rate_owner", displayName:"Owner",
