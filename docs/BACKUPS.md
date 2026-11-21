@@ -82,6 +82,63 @@ permissions, attachment downloads and deletions in that isolated environment.
 Automated synthetic tests exercise this process, but they do not replace
 a real host/device restore drill or service rollback plan.
 
+## Optional recipient-encrypted archive (development)
+
+The complete bundle above is still plaintext. For *operator-initiated* transport
+to independently controlled storage, the optional `backup:encrypt` command
+verifies an existing immutable bundle and streams a tar archive through the
+established **age v1** X25519-recipient encryption tool. No custom encryption
+format is implemented and **no intermediate plaintext tar** is written.
+
+Prerequisites: an independently reviewed, trusted `age` 1.1+ binary on the
+operator host; an operator-held private identity backed up separately from
+the primary server; its matching public `age1...` recipient; and a new,
+already-existing real destination directory with mode 0700. Never commit,
+paste, email, log, or expose the private identity.
+
+```bash
+# First create and verify the ordinary private SQLite+attachment bundle.
+npm run backup:bundle -- --verify /private/bundles/teams-complete
+mkdir -m 700 /private/encrypted-archives
+
+# The recipient is PUBLIC. Never pass an identity or passphrase to this command.
+npm run backup:encrypt -- \
+  --bundle /private/bundles/teams-complete \
+  --recipient age1YOURVERIFIEDPUBLICRECIPIENT \
+  --destination /private/encrypted-archives/teams-complete.tar.age
+```
+
+The script accepts only absolute paths, a single age recipient, and a fresh
+`.tar.age` filename. It refuses symlinked or world-readable destination
+folders, malformed public recipients, incomplete/unverified source bundles,
+and existing destinations. The archive is written to a private temporary
+**ciphertext-only** file, synchronized, checked for age format, and published
+with an atomic no-overwrite hard link, resulting in a 0600 ciphertext file.
+Missing `age` tooling fails closed. The script never invokes a shell,
+downloads tools, stores keys, deletes source data, or initiates any external
+transfer. Using a public recipient does **not** prove the operator controls
+the matching recovery key.
+
+Before relying on a copy, decrypt into a new, private **staging** directory
+with a properly protected identity using a trusted `age -d` binary. Verify
+that decryption completed successfully **before** extracting anything. Review
+the archive's entries and extract only into a new isolated directory with
+no same-owner or same-permission restoration, then run
+`npm run backup:bundle -- --verify /private/staged/bundle-dir` and the staged
+login/attachment/permission tests. Do not stream decryption straight into
+a live restore, because a failed final authentication must never leave
+partially trusted application state. Destroy decrypted temporary copies only
+after independently verifying the successful recovery target.
+
+The synthetic CI job `backup-encryption` installs the official Ubuntu
+`age` package on its **ephemeral** runner and tests authenticated encryption,
+wrong-key/tamper rejection, no-overwrite behavior, and a complete SQLite+
+attachment staging restore. This is **not** a verified off-host transfer,
+backup schedule, recovery key-custody/rotation program, retention policy, live
+disaster recovery drill, or production acceptance. Private plaintext bundles
+remain present until the authorized operator independently confirms secure
+replication and approves their retention/deletion policy.
+
 ## Nonproduction restore verification
 
 1. Stop any *staging* Teams process that owns your **restore target**. Never

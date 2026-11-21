@@ -18,6 +18,7 @@ original GoreeCloud source. Their original license notices remain applicable.
 | TypeScript | Compile-time checking | https://github.com/microsoft/TypeScript | Apache-2.0 |
 | Flutter | Android/Linux native UI framework and platform template | https://github.com/flutter/flutter | BSD-3-Clause |
 | GoreeCloud UI alpha tokens | Semantic visual guidance | https://github.com/GoreeCloud/gc-ui | MIT |
+| age CLI (optional, not vendored) | Encrypt verified private backup archives on the operator host | https://github.com/FiloSottile/age | BSD-3-Clause |
 
 No Slack or Mattermost proprietary software, logos, trademarks, or message
 history were copied. A full dependency-specific license inventory must be

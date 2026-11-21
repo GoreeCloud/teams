@@ -42,6 +42,11 @@ All clients ───────WebSocket───┘         └── Scoped 
   shipped server or in any client; see [ATTACHMENTS.md](ATTACHMENTS.md).
   No production attachments, voice calls, video, presence or
   federation yet.
+- Optional offline encrypted bundle handoff: an operator-only source tool
+  verifies an existing SQLite+private-attachment backup, then streams tar
+  directly into independently packaged age v1 encryption without a plaintext
+  tar on disk. This is neither deployed backup replication nor approved
+  key management. See [BACKUPS.md](BACKUPS.md).
 - Pinned messages: bounded to 50 per channel/conversation, stored in an additive
   SQLite table. All reads/mutations validate channel authorization, while
   unpin is limited to the pinner or a workspace administrator/owner who is
