@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'generated/gc_ui_tokens.g.dart';
 
 void main() => runApp(const GoreeCloudTeamsApp());
 
@@ -57,36 +58,32 @@ class TeamsApi {
 }
 
 class GcColors {
-  static const darkCanvas = Color(0xFF0D121D);
-  static const darkSurface = Color(0xFF171D2A);
-  static const darkTonal = Color(0xFF252D3D);
-  static const darkBrand = Color(0xFFBFB8FF);
-  static const lightBrand = Color(0xFF5146C8);
   static ThemeData theme(Brightness brightness) {
     final dark = brightness == Brightness.dark;
     final scheme = dark
         ? const ColorScheme.dark(
-            primary: darkBrand,
-            onPrimary: Color(0xFF272057),
-            surface: darkSurface,
-            onSurface: Color(0xFFF2F4FB),
-            secondaryContainer: Color(0xFF413974),
-            onSecondaryContainer: Color(0xFFE8E5FF),
-            outline: Color(0xFF9CA8BC),
-            error: Color(0xFFFFB4AB))
+            primary: GcUiTokenColors.darkBrand,
+            onPrimary: GcUiTokenColors.darkOnBrand,
+            surface: GcUiTokenColors.darkSurface,
+            onSurface: GcUiTokenColors.darkText,
+            secondaryContainer: GcUiTokenColors.darkBrandContainer,
+            onSecondaryContainer: GcUiTokenColors.darkOnBrandContainer,
+            outline: GcUiTokenColors.darkOutline,
+            error: GcUiTokenColors.darkError)
         : const ColorScheme.light(
-            primary: lightBrand,
-            onPrimary: Colors.white,
-            surface: Colors.white,
-            onSurface: Color(0xFF1B2030),
-            secondaryContainer: Color(0xFFE8E5FF),
-            onSecondaryContainer: Color(0xFF30266F),
-            outline: Color(0xFF68758C),
-            error: Color(0xFFB3261E));
+            primary: GcUiTokenColors.lightBrand,
+            onPrimary: GcUiTokenColors.lightOnBrand,
+            surface: GcUiTokenColors.lightSurface,
+            onSurface: GcUiTokenColors.lightText,
+            secondaryContainer: GcUiTokenColors.lightBrandContainer,
+            onSecondaryContainer: GcUiTokenColors.lightOnBrandContainer,
+            outline: GcUiTokenColors.lightOutline,
+            error: GcUiTokenColors.lightError);
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: dark ? darkCanvas : const Color(0xFFF6F7FB),
+      scaffoldBackgroundColor:
+          dark ? GcUiTokenColors.darkCanvas : GcUiTokenColors.lightCanvas,
       cardTheme: CardThemeData(color: scheme.surface, elevation: 0),
       inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),

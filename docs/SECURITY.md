@@ -37,6 +37,15 @@
   External APIs and cross-product sync are future work behind separate
   consent and authorization controls.
 
+## Native UI token provenance
+
+The Flutter Android/Linux theme consumes a checked-in generated Dart color
+library from a **pinned, MIT-licensed** first-party GoreeCloud UI snapshot.
+The generator parses local JSON data only, never executes the snapshot or
+downloads dependencies. Cross-client parity and exact-source SHA-256 are
+checked in CI. This is not Android Material 3 Expressive acceptance or a
+GoreeCloud Identity/Mesh/Wardveil security implementation.
+
 ## Production conditions
 Use a TLS reverse proxy and set TEAMS_SITE_ORIGIN exactly to the external HTTPS
 origin. Keep the HTTP backend bound to localhost. Back up the SQLite volume
@@ -89,7 +98,7 @@ restoration on staging. This is not a production recovery acceptance.
 
 ## Attachment bundle backup boundaries
 
-The operator-controlled \`npm run backup:bundle\` workflow verifies a standalone
+The operator-controlled `npm run backup:bundle` workflow verifies a standalone
 SQLite snapshot and its referenced private file blobs before writing a
 completion marker. Backups remain plaintext and unsigned, and in-process
 integrity checks do not prove authenticity against a write-capable adversary.
