@@ -41,7 +41,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           age --version
-          TEAMS_AGE_BINARY=/usr/bin/age node --test apps/server/test/backup-encrypted.test.mjs
+          TEAMS_AGE_BINARY=/usr/bin/age node --test apps/server/test/backup-encrypted.test.mjs apps/server/test/age-staged-recovery.test.mjs
   native-source:
     name: native-source
     runs-on: ubuntu-24.04

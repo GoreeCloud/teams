@@ -130,6 +130,34 @@ a live restore, because a failed final authentication must never leave
 partially trusted application state. Destroy decrypted temporary copies only
 after independently verifying the successful recovery target.
 
+### Authenticated staging recovery acceptance
+
+The independent age-staged-recovery.test.mjs test builds a synthetic
+private-channel dataset with two real Argon2id password credentials, a
+pinned message, a private attachment, and workspace membership boundaries.
+It captures a verified SQLite-plus-blob bundle, encrypts it with the real
+age CLI, then fully decrypts with a temporary test-only identity.
+
+Before extracting the decrypted archive, the test verifies the exact
+expected entry set (database, manifest, completion marker, attachment
+directory, and one synthetic blob); extraction is confined to an isolated
+0700 staging directory without inheriting file ownership. A newly copied
+application database and attachment folder are explicitly set to 0600 and
+0700, with private 0600 blob files. This matters: generic copy helpers can
+create attachment directories with insufficiently private modes. Only the
+staged copy is modified; the original verified backup is preserved.
+
+A recovered Fastify server then authenticates real synthetic accounts,
+restores private pinned-message and attachment access, refuses another
+workspace member's unauthorized private reads, revokes a session on logout,
+and confirms re-login and workspace recovery. The test never binds a
+public port, uses live user data, stores a production recovery identity,
+or transfers backups off-host.
+
+A passing test demonstrates synthetic recovered application behavior,
+not a real off-host disaster recovery drill, operator-controlled key custody,
+live network/TLS acceptance, or production deployment authorization.
+
 The synthetic CI job `backup-encryption` installs the official Ubuntu
 `age` package on its **ephemeral** runner and tests authenticated encryption,
 wrong-key/tamper rejection, no-overwrite behavior, and a complete SQLite+

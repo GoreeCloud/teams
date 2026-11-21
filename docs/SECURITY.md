@@ -171,6 +171,16 @@ copies off-host or prove owner key custody. Independent retention, operator
 recovery authorization, scheduled execution, real staged restore and off-host
 availability remain unverified. See [BACKUPS.md](BACKUPS.md).
 
+## Encrypted synthetic application recovery
+
+The dedicated backup-encryption CI job now exercises actual age decryption,
+then launches an isolated recovered Fastify server using synthetic Argon2id
+credentials, private channel memberships, attachment downloads, pinned
+messages, and session revocation. The test verifies private staging file
+modes after copying. It is not an off-host encrypted backup, approved
+private-key custody, real VPS restore or production release acceptance.
+See [BACKUPS.md](BACKUPS.md).
+
 ## Attachment trust boundary (disabled by default)
 
 The optional attachment API rejects uploads without an explicitly injected,
