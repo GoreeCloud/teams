@@ -92,6 +92,17 @@ publishes its port **only to host loopback**; operators must preserve that
 network boundary and configure a trusted HTTPS reverse proxy. Non-production
 loopback tests may still use HTTP and ephemeral port zero.
 
+## Isolated container packaging acceptance
+
+The separate GitHub Actions \`container-acceptance\` job builds the shipped
+Docker image and tests production startup with \`--network none\`, no
+published host ports, and only synthetic SQLite data. It verifies non-root
+ownership, 0700 data directories, 0600 SQLite/WAL/SHM files, failed
+placeholder-origin and unsafe-storage launch, and healthy local-only
+startup. Actual Docker Compose mounts, live TLS/DNS routes, VPS firewalls,
+key custody, independent restore, or app release security are **not** tested.
+See [CONTAINER_ACCEPTANCE.md](CONTAINER_ACCEPTANCE.md).
+
 ## Production conditions
 Use a TLS reverse proxy and set TEAMS_SITE_ORIGIN exactly to the external HTTPS
 origin. Keep the HTTP backend bound to localhost. Back up the SQLite volume
