@@ -488,7 +488,12 @@ export function createServer({
       WHERE cm.channel_id=? AND cm.user_id<>? AND m.role IN ('owner','admin')`)
       .get(ch.workspaceId, ch.id, id).count;
     if (!remainingManagers) return error(reply, 409, "Channel must retain an admin or owner");
-    db.prepare("DELETE FROM channel_members WHERE channel_id=? AND user_id=?").run(ch.id, id);
+    db.transaction(() => {
+      db.prepare("DELETE FROM channel_members WHERE channel_id=? AND user_id=?").run(ch.id, id);
+      // Revocation also removes inaccessible personal bookmark metadata.
+      db.prepare(`DELETE FROM saved_messages WHERE user_id=? AND message_id IN
+        (SELECT id FROM messages WHERE channel_id=?)`).run(id, ch.id);
+    })();
     broadcastToUser(id, {
       type: "channel.removed", workspaceId: ch.workspaceId, channelId: ch.id
     });
@@ -622,6 +627,92 @@ export function createServer({
     });
     return { ok: true };
   });
+  // Personal saves are private account metadata. They do not grant access to
+  // message content after channel membership has been revoked.
+  app.get("/api/workspaces/:workspaceId/saved-ids", { preHandler: requireUser }, async (req, reply) => {
+    if (!requireWorkspace(req, reply)) return;
+    return db.prepare(`SELECT s.message_id AS messageId FROM saved_messages s
+      JOIN messages m ON m.id=s.message_id
+      JOIN channels c ON c.id=m.channel_id
+      LEFT JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=?
+      WHERE s.user_id=? AND c.workspace_id=? AND m.deleted_at IS NULL
+        AND (c.is_private=0 OR cm.user_id IS NOT NULL)
+      ORDER BY s.saved_at DESC,s.message_id DESC LIMIT 500`)
+      .all(req.actor.id,req.actor.id,req.params.workspaceId).map(row => row.messageId);
+  });
+  app.get("/api/workspaces/:workspaceId/saved", { preHandler: requireUser }, async (req, reply) => {
+    if (!requireWorkspace(req, reply)) return;
+    const rawLimit = req.query?.limit;
+    const limit = rawLimit === undefined ? 50 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return error(reply,400,"Saved page limit must be 1–100");
+    }
+    const cursor = req.query?.before;
+    if (cursor !== undefined &&
+        (typeof cursor !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(cursor))) {
+      return error(reply,400,"Invalid saved-message cursor");
+    }
+    const before = cursor ? db.prepare(`SELECT s.saved_at AS savedAt,s.message_id AS messageId
+      FROM saved_messages s
+      JOIN messages m ON m.id=s.message_id
+      JOIN channels c ON c.id=m.channel_id
+      LEFT JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=?
+      WHERE s.user_id=? AND s.message_id=? AND c.workspace_id=?
+        AND m.deleted_at IS NULL AND (c.is_private=0 OR cm.user_id IS NOT NULL)`)
+      .get(req.actor.id,req.actor.id,cursor,req.params.workspaceId) : null;
+    if (cursor && !before) return error(reply,404,"Saved-message cursor not found");
+    const params = [req.actor.id,req.actor.id,req.params.workspaceId];
+    let sql = `SELECT m.*,s.saved_at AS savedAt,c.name AS channelName
+      FROM saved_messages s JOIN messages m ON m.id=s.message_id
+      JOIN channels c ON c.id=m.channel_id
+      LEFT JOIN channel_members cm ON cm.channel_id=c.id AND cm.user_id=?
+      WHERE s.user_id=? AND c.workspace_id=? AND m.deleted_at IS NULL
+        AND (c.is_private=0 OR cm.user_id IS NOT NULL)`;
+    if (before) {
+      sql += " AND (s.saved_at < ? OR (s.saved_at=? AND s.message_id < ?))";
+      params.push(before.savedAt,before.savedAt,before.messageId);
+    }
+    sql += " ORDER BY s.saved_at DESC,s.message_id DESC LIMIT ?";
+    params.push(limit);
+    return db.prepare(sql).all(...params).map(m => ({
+      message: publicMessage(m), savedAt: m.savedAt, channelName: m.channelName
+    }));
+  });
+  app.post("/api/messages/:messageId/save", { preHandler: requireUser }, async (req, reply) => {
+    const message = messageById(req.params.messageId);
+    if (!message || !channelFor(req.actor.id,message.channel_id) || message.deleted_at) {
+      return error(reply,404,"Message not found");
+    }
+    const already = db.prepare("SELECT 1 FROM saved_messages WHERE user_id=? AND message_id=?")
+      .get(req.actor.id,message.id);
+    if (!already) {
+      const total = db.prepare("SELECT count(*) AS total FROM saved_messages WHERE user_id=?")
+        .get(req.actor.id).total;
+      if (total >= 500) return error(reply,413,"Saved-message limit reached (500)");
+      db.prepare("INSERT OR IGNORE INTO saved_messages(user_id,message_id,saved_at) VALUES(?,?,?)")
+        .run(req.actor.id,message.id,now());
+    }
+    const ch = channelFor(req.actor.id,message.channel_id);
+    broadcastToUser(req.actor.id,{
+      type:"saved.changed",workspaceId:ch.workspaceId,messageId:message.id,saved:true
+    });
+    return { saved:true };
+  });
+  app.delete("/api/messages/:messageId/save", { preHandler: requireUser }, async (req) => {
+    // Unsave is account-scoped even if private channel access was removed.
+    // It cannot return metadata about the message or channel to callers.
+    const removed = db.prepare("DELETE FROM saved_messages WHERE user_id=? AND message_id=?")
+      .run(req.actor.id,req.params.messageId).changes;
+    // A guessed message UUID must not reveal another conversation's existence,
+    // workspace or membership through even a self-scoped event.
+    const message = removed ? messageById(req.params.messageId) : null;
+    const ch = message ? db.prepare("SELECT workspace_id AS workspaceId FROM channels WHERE id=?")
+      .get(message.channel_id) : null;
+    if (removed && ch) broadcastToUser(req.actor.id,{
+      type:"saved.changed",workspaceId:ch.workspaceId,messageId:req.params.messageId,saved:false
+    });
+    return { saved:false };
+  });
   app.get("/api/channels/:channelId/messages", { preHandler: requireUser }, async (req, reply) => {
     const ch = requireChannel(req, reply, req.params.channelId);
     if (!ch) return;
@@ -743,6 +834,7 @@ export function createServer({
     }
     db.transaction(() => {
       db.prepare("DELETE FROM attachments WHERE message_id=?").run(old.id);
+      db.prepare("DELETE FROM saved_messages WHERE message_id=?").run(old.id);
       db.prepare("DELETE FROM pinned_messages WHERE message_id=?").run(old.id);
       db.prepare("UPDATE messages SET body='',deleted_at=? WHERE id=? AND deleted_at IS NULL").run(now(), old.id);
     })();

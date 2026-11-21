@@ -44,6 +44,14 @@ export function openDatabase(filename) {
     CREATE INDEX IF NOT EXISTS messages_channel_created ON messages(channel_id, created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS messages_parent ON messages(parent_id);
     CREATE INDEX IF NOT EXISTS messages_channel_parent_history ON messages(channel_id, parent_id, created_at DESC, id DESC);
+    CREATE TABLE IF NOT EXISTS saved_messages (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      saved_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, message_id)
+    );
+    CREATE INDEX IF NOT EXISTS saved_messages_history ON saved_messages(user_id, saved_at DESC, message_id DESC);
+
     CREATE TABLE IF NOT EXISTS channel_reads (
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
