@@ -117,6 +117,7 @@ Linux runners are included in the repository.
 
 ```bash
 cp .env.example .env
+chmod 600 .env
 # Set TEAMS_SITE_ORIGIN and a randomly generated TEAMS_BOOTSTRAP_TOKEN in .env.
 # Treat .env and Docker environment inspection as sensitive; do not paste secrets in logs.
 # Configure a trusted TLS proxy before exposing any service.

@@ -43,7 +43,8 @@ const browser=await playwright.chromium.launch({
 const cases=[
  {name:"desktop-light",width:900,height:800,scheme:"light"},
  {name:"mobile-dark",width:390,height:844,scheme:"dark"},
- {name:"compact-light",width:320,height:760,scheme:"light"}
+ {name:"compact-light",width:320,height:760,scheme:"light"},
+ {name:"owner-bootstrap",width:390,height:844,scheme:"light",bootstrap:true}
 ];
 try{
  for(const item of cases){
@@ -59,7 +60,8 @@ try{
      calls.push(path);return route.fulfill({status:401,contentType:"application/json",body:'{"error":"synthetic not authenticated"}'});
     }
     if(path==="/api/config"){
-     calls.push(path);return route.fulfill({status:200,contentType:"application/json",body:'{"bootstrapAvailable":false}'});
+     calls.push(path);return route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({bootstrapAvailable:!!item.bootstrap,
+      bootstrapTokenRequired:!!item.bootstrap})});
     }
     if(path.startsWith("/api/")){
      unexpected.push(path);return route.fulfill({status:403,contentType:"application/json",body:'{"error":"blocked synthetic fixture"}'});
@@ -70,7 +72,7 @@ try{
    page.on("pageerror",e=>errors.push(String(e).slice(0,200)));
    const response=await page.goto(base+"/",{waitUntil:"networkidle",timeout:15000});
    assert.equal(response?.status(),200);
-   await page.getByRole("heading",{name:"Welcome back."}).waitFor();
+   await page.getByRole("heading",{name:item.bootstrap?"Create your space.":"Welcome back."}).waitFor();
    const getTheme=()=>page.evaluate(()=>{
     const root=document.documentElement,style=getComputedStyle(root);
     const panel=document.querySelector(".auth-card")?.getBoundingClientRect();
@@ -102,10 +104,20 @@ try{
    const username=page.getByRole("textbox",{name:"Username"});
    await username.focus();
    assert.equal(await username.evaluate(el=>el===document.activeElement),true);
-   await page.getByRole("button",{name:"Have an invite? Create an account"}).click();
-   await page.getByRole("heading",{name:"Join your team."}).waitFor();
-   await page.getByRole("button",{name:"Already have an account? Sign in"}).click();
-   await page.getByRole("heading",{name:"Welcome back."}).waitFor();
+   if(item.bootstrap){
+    const secret=page.getByLabel("Owner setup token");
+    await secret.waitFor();
+    assert.equal(await secret.getAttribute("type"),"password");
+    assert.equal(await secret.getAttribute("autocomplete"),"off");
+    await secret.fill("synthetic-operator-token-never-sent-to-an-api");
+    assert.equal(await secret.inputValue(),"synthetic-operator-token-never-sent-to-an-api");
+    assert.ok(!(await page.locator("body").innerText()).includes("synthetic-operator-token"));
+   }else{
+    await page.getByRole("button",{name:"Have an invite? Create an account"}).click();
+    await page.getByRole("heading",{name:"Join your team."}).waitFor();
+    await page.getByRole("button",{name:"Already have an account? Sign in"}).click();
+    await page.getByRole("heading",{name:"Welcome back."}).waitFor();
+   }
    if(screenshots) await page.screenshot({path:join(screenshots,"teams-"+item.name+".png"),fullPage:true});
    const other=item.scheme==="dark"?"light":"dark";
    await page.emulateMedia({colorScheme:other});
@@ -117,7 +129,7 @@ try{
    assert.deepEqual(errors,[]);
    assert.deepEqual(unexpected,[],"unexpected service or off-origin request");
    assert.deepEqual(calls,["/api/me","/api/config"],"unknown request or authentication");
-   console.log("Chromium "+item.name+": real login + invite toggle, OS theme change, pinned roles, reflow PASS");
+   console.log("Chromium "+item.name+": "+(item.bootstrap?"masked private owner setup":"login + invite toggle")+", OS theme change, pinned roles, reflow PASS");
   }finally{await context.close();}
  }
 }finally{

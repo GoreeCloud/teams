@@ -10,13 +10,14 @@ import { MAX_ATTACHMENT_BYTES } from "../src/attachments.mjs";
 const call = (app, method, url, token, payload) => app.inject({
   method, url, payload, headers: token ? { authorization: "Bearer " + token } : {}
 });
+const SETUP_TOKEN = "synthetic-attachment-owner-setup-token-1234567890";
 const uploadPayload = (bytes = Buffer.from("Safe synthetic sample\n")) => ({
   filename: "sample.txt", mimeType: "text/plain", dataBase64: bytes.toString("base64")
 });
 
 async function ownerAndChannel(app) {
   const owner = await call(app, "POST", "/api/auth/register", null, {
-    username: "files_owner", displayName: "Files Owner", password: "synthetic-file-test-password-123"
+    username: "files_owner", displayName: "Files Owner", password: "synthetic-file-test-password-123", bootstrapToken: SETUP_TOKEN
   });
   assert.equal(owner.statusCode, 201, owner.body);
   const ownerToken = owner.json().accessToken;
@@ -95,7 +96,7 @@ test("clean attachments are private, signed-by-scanner fixtures only, and delete
   const directory = path.join(temp, "private");
   let verified = 0;
   const app = createServer({
-    allowUnsafeMemoryBootstrap:true,
+    bootstrapToken: SETUP_TOKEN,
     databaseFile: path.join(temp, "teams.sqlite"),
     attachmentDirectory: directory,
     scanAttachment: async ({bytes, filename, mimeType, sha256}) => {
