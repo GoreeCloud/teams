@@ -69,6 +69,27 @@ readback checks. Do not blindly relax this guard or erase historical private
 data. This security measure does not replace volume encryption, host access
 control, independent off-host recovery, or a complete Wardveil privacy audit.
 
+## Fail-closed production launch preflight
+
+The shipped server entrypoint now validates operator network/storage settings
+**before opening the SQLite database or binding a listening port**. With
+`NODE_ENV=production`, it refuses an absent, HTTP, malformed, noncanonical or
+sample `.example` public `TEAMS_SITE_ORIGIN`; it also rejects invalid
+TCP ports (including zero), invalid listen hosts, relative SQLite database
+paths and relative configured attachment paths. The public origin must be the
+**exact external HTTPS origin**, with no path, credentials, query, fragment or
+trailing slash. Operator-provided bootstrap tokens are never printed when
+configuration validation fails. A source test launches the real entrypoint
+against a synthetic invalid configuration and confirms SQLite was not created.
+
+This is an application launch safeguard, **not** evidence that the TLS reverse
+proxy works, that public routing/ports are correctly restricted, or that
+storage, DNS, certificates, and Identity have been independently accepted.
+The Compose sample still binds the container to `0.0.0.0` internally but
+publishes its port **only to host loopback**; operators must preserve that
+network boundary and configure a trusted HTTPS reverse proxy. Non-production
+loopback tests may still use HTTP and ephemeral port zero.
+
 ## Production conditions
 Use a TLS reverse proxy and set TEAMS_SITE_ORIGIN exactly to the external HTTPS
 origin. Keep the HTTP backend bound to localhost. Back up the SQLite volume
