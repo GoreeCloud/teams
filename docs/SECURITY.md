@@ -58,6 +58,8 @@ existing database and sidecar files must be single-owner, regular **0600**
 files without symlinks or hardlinks. Unsafe existing modes fail **before
 opening the database**, and the server refuses to silently chmod, move or
 overwrite existing operator data. Memory-only test fixtures are unaffected.
+The official launch entrypoint reports a static private-storage error category
+without disclosing the database path or any setup credentials.
 
 The portable Docker image configures `/data` as **0700** and owned by the
 non-root Node user. This does not automatically repair an already-mounted

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { openDatabase } from "../src/db.mjs";
 import {
   preparePrivateDatabaseFile, verifyPrivateDatabaseFiles, PrivateDatabaseError
@@ -111,4 +112,27 @@ test("in-memory test fixtures remain unmodified, container's private volume is e
   } finally {db.close();}
   const dockerfile=fs.readFileSync(fileURLToPath(new URL("../../../Dockerfile",import.meta.url)),"utf8");
   assert.match(dockerfile,/chmod 0700 \/data/);
+});
+
+test("production entrypoint refuses an unsafe existing SQLite volume without leaking paths or bootstrap tokens",t=>{
+  const root=directory(t);
+  const shared=path.join(root,"unprotected-volume");
+  fs.mkdirSync(shared,{mode:0o755});
+  fs.chmodSync(shared,0o755);
+  const dbPath=path.join(shared,"app.sqlite");
+  const entry=fileURLToPath(new URL("../src/index.mjs",import.meta.url));
+  const bootstrapToken="synthetic-private-db-setup-token-not-a-real-credential-12345";
+  const output=spawnSync(process.execPath,[entry],{
+    encoding:"utf8",timeout:4000,
+    env:{...process.env,NODE_ENV:"production",
+      TEAMS_SITE_ORIGIN:"https://teams.goreecloud.com",
+      TEAMS_DB_PATH:dbPath,TEAMS_BOOTSTRAP_TOKEN:bootstrapToken,
+      HOST:"127.0.0.1",PORT:"3030"}
+  });
+  assert.equal(output.status,1,"production must not bind or initialize unsafe storage");
+  assert.match(output.stderr,/Teams private database storage rejected: SQLite directory/);
+  assert.equal(output.stderr.includes(bootstrapToken),false);
+  assert.equal(output.stderr.includes(root),false,"absolute private paths must be redacted");
+  assert.equal(fs.existsSync(dbPath),false);
+  assert.equal(mode(shared),0o755,"operator-owned files and modes are never modified");
 });
