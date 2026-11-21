@@ -13,8 +13,9 @@
     "backup": "node scripts/backup.mjs",
     "backup:bundle": "node scripts/backup-bundle.mjs",
     "verify:action-pins": "node --test scripts/verify-action-pins.test.mjs && node scripts/verify-action-pins.mjs",
+    "verify:native-ui-tokens": "node apps/native/tool/update_gc_ui_tokens.mjs --check && node --test apps/native/tool/gc_ui_tokens.test.mjs",
     "test:realtime": "node --test apps/web/test/*.test.mjs",
-    "check": "npm run verify:action-pins && npm run check -w @goreecloud/teams-web && npm run test:realtime && npm test && npm run build"
+    "check": "npm run verify:action-pins && npm run verify:native-ui-tokens && npm run check -w @goreecloud/teams-web && npm run test:realtime && npm test && npm run build"
   },
   "license": "MIT"
 }

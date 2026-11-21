@@ -10,6 +10,11 @@ All clients ───────WebSocket───┘         └── Scoped 
 - Source of truth: user-owned SQLite on the self-hosted server.
 - Web app: React 19 + Vite, same-origin API and WebSocket (no tokens in
   browser storage). GoreeCloud UI semantic tokens inform both themes.
+- Native GoreeCloud UI semantic colors: reviewed, MIT-licensed alpha registry
+  snapshot from `GoreeCloud/gc-ui` generates one deterministic Flutter Dart
+  color library for both platforms; the repo check verifies source hash and
+  React/Flutter color parity. Native Material 3 Expressive acceptance remains
+  independent of theme-color parity.
 - Native apps: one Flutter Linux and Android source, real platform runners and
   APIs. Native login token is intentionally memory-only (re-authentication on
   app restart). Remote HTTP without TLS is refused.
@@ -46,7 +51,7 @@ All clients ───────WebSocket───┘         └── Scoped 
   (created_at, id), maximum 100 rows per request and default 50. Cursors must
   belong to the exact authorized channel and root/reply scope. Web and native
   clients load additional pages on request rather than unbounded fetch.
-- Personal saves: SQLite \`saved_messages\` references existing messages by
+- Personal saves: SQLite `saved_messages` references existing messages by
   account, message ID and save time without copying message content. Bounded
   (500 per account), cursor-paginated, workspace-scoped read APIs verify current
   channel permissions on every access; private membership removal purges that
