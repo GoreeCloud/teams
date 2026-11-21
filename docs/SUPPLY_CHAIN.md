@@ -25,3 +25,13 @@ artifacts, SBOM review, malware scanning and runtime hardening.
 
 The Linux and Android CI artifacts are **debug** outputs with short
 retention and are not signed Stable production releases.
+
+## Unsigned Linux release preview
+
+The separate \`native-linux-release\` CI workflow builds the actual
+release-mode Flutter Linux bundle, checks for executable/runtime assets,
+and publishes a seven-day unsigned tar archive plus SHA256SUMS. Synthetic
+tests cover output collision, incomplete bundles, and checksum tampering.
+A checksum is not a signature, and this source-only CI artifact has no
+production installation, cross-distro, key custody or rollout acceptance.
+See [LINUX_PREVIEW_PACKAGING.md](LINUX_PREVIEW_PACKAGING.md).
