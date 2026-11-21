@@ -19,6 +19,27 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm audit --omit=dev --audit-level=high
+  backup-encryption:
+    name: backup-encryption
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned official checkout v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # pinned official setup-node v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install isolated official Ubuntu age package
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends age
+      - name: Check locked dependencies and actual age encryption/decryption
+        run: |
+          npm ci --no-audit --no-fund
+          age --version
+          TEAMS_AGE_BINARY=/usr/bin/age node --test apps/server/test/backup-encrypted.test.mjs
   native-source:
     name: native-source
     runs-on: ubuntu-24.04
