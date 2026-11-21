@@ -31,8 +31,15 @@ export function createServer({
   databaseFile = ":memory:", siteOrigin = "", serveWeb = false,
   attachmentDirectory = null, scanAttachment = null,
   bootstrapToken = process.env.TEAMS_BOOTSTRAP_TOKEN || null,
-  allowUnsafeMemoryBootstrap = false
+  allowUnsafeMemoryBootstrap = false,
+  sessionSweepIntervalMs = 60_000
 } = {}) {
+  // Timer interval is a trusted server-side constructor option only. Bound it
+  // so an accidental misconfiguration cannot create a tight SQLite loop.
+  if (!Number.isSafeInteger(sessionSweepIntervalMs) ||
+      sessionSweepIntervalMs < 25 || sessionSweepIntervalMs > 3_600_000) {
+    throw new Error("Session expiry sweep interval must be 25–3600000 ms");
+  }
   // Reject unsafe test mode before opening any application state.
   if (allowUnsafeMemoryBootstrap && (databaseFile !== ":memory:" || serveWeb ||
       process.env.NODE_ENV === "production")) {
@@ -148,6 +155,18 @@ export function createServer({
       if (liveSocket(socket, session) && session.userId === recipientId) socket.send(data);
     }
   };
+
+  // Reject expired/revoked idle sockets even when nobody sends an event.
+  // Reuse the same database-backed policy that gates live fanout; do not send
+  // a message, log a bearer token, or track device IP/fingerprint metadata.
+  const sessionSweep = setInterval(() => {
+    for (const [socket, session] of sockets) {
+      if (socket.readyState !== 1) { sockets.delete(socket); continue; }
+      liveSocket(socket, session);
+    }
+  }, sessionSweepIntervalMs);
+  // An idle server with no other work should not be kept alive by this timer.
+  sessionSweep.unref();
 
   app.addHook("onRequest", async (_req, reply) => {
     reply.header("X-Content-Type-Options", "nosniff");
@@ -909,6 +928,7 @@ export function createServer({
     if (fs.existsSync(root)) app.register(fastifyStatic, { root, prefix: "/" });
   }
   app.addHook("onClose", async () => {
+    clearInterval(sessionSweep);
     for (const ws of sockets.keys()) ws.close();
     wss.close();
     db.close();
