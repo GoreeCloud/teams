@@ -130,8 +130,10 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
   final passwordController = TextEditingController();
   final nameController = TextEditingController();
   final inviteController = TextEditingController();
+  final ownerTokenController = TextEditingController();
   final composerController = TextEditingController();
   bool connected = false, bootstrap = false, register = false, busy = false;
+  bool requireOwnerToken = false;
   bool hasOlderMessages = false, loadingOlderMessages = false;
   bool appIsForeground = true;
   String? currentUserId;
@@ -185,6 +187,7 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
     passwordController.dispose();
     nameController.dispose();
     inviteController.dispose();
+    ownerTokenController.dispose();
     composerController.dispose();
     super.dispose();
   }
@@ -231,6 +234,7 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
         setState(() {
           api = candidate;
           bootstrap = config['bootstrapAvailable'] == true;
+          requireOwnerToken = config['bootstrapTokenRequired'] == true;
           register = bootstrap;
           connected = true;
         });
@@ -242,7 +246,8 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                 'username': usernameController.text.trim(),
                 'displayName': nameController.text.trim(),
                 'password': passwordController.text,
-                'invite': inviteController.text.trim()
+                'invite': inviteController.text.trim(),
+                if (bootstrap) 'bootstrapToken': ownerTokenController.text
               }
             : {
                 'username': usernameController.text.trim(),
@@ -255,6 +260,7 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
         api!.accessToken = result['accessToken'] as String;
         currentUserId = (result['user'] as Map)['id'] as String;
         passwordController.clear();
+        ownerTokenController.clear();
         if (!mounted) return;
         await loadWorkspaces();
         listenRealtime();
@@ -1581,6 +1587,17 @@ class _TeamsHomeState extends State<TeamsHome> with WidgetsBindingObserver {
                     controller: passwordController,
                     obscureText: true,
                     decoration: const InputDecoration(labelText: 'Password')),
+                if (register && bootstrap && requireOwnerToken) ...[
+                  const SizedBox(height: 14),
+                  TextField(
+                      controller: ownerTokenController,
+                      obscureText: true,
+                      enableSuggestions: false,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                          labelText: 'Owner setup token',
+                          helperText: 'From the private server configuration')),
+                ],
                 if (register && !bootstrap) ...[
                   const SizedBox(height: 14),
                   TextField(

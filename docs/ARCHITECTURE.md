@@ -21,7 +21,9 @@ All clients ───────WebSocket───┘         └── Scoped 
   creation hashes (10 failures/15 minutes, 1 per IP and 2 global in flight,
   1,024 retained keyed buckets).
 - Sessions: opaque tokens, hashed in the sessions table, 30-day expiry; owner
-  bootstrap and single-use, 24-hour invitation codes. Separate random UUID
+  bootstrap with an operator-controlled first-owner setup token by default;
+  only explicitly opted-in in-memory test fixtures bypass this; new members
+  use single-use 24-hour invitation codes. Separate random UUID
   handles allow listing and revocation of one's own sessions without revealing
   secret digests. Existing sessions are migrated in place, with no invented
   creation timestamp. No device fingerprints/IP/User-Agent metadata is stored in session records.

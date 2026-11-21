@@ -38,7 +38,7 @@ async function fixture(app) {
 }
 
 test("only authorized private-channel managers can list and revoke members", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async () => app.close());
   const {owner, ownerId, workspace, admin, bob, carol, ch} = await fixture(app);
   const base = "/api/channels/" + ch.id;
@@ -87,7 +87,7 @@ test("only authorized private-channel managers can list and revoke members", asy
 });
 
 test("channel.added and channel.removed events are scoped; removed sockets receive no private messages", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   const sockets = [];
   t.after(async () => {
     for (const ws of sockets) ws.terminate();

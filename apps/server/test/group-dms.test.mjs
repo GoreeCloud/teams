@@ -33,7 +33,7 @@ async function bootstrap(app) {
 }
 
 test("group conversations have immutable, workspace-scoped 3+ participant membership", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async () => app.close());
   const { ownerToken, workspace, bob, carol, dave } = await bootstrap(app);
   const base = "/api/workspaces/" + workspace.id;
@@ -90,7 +90,7 @@ test("group conversations have immutable, workspace-scoped 3+ participant member
 });
 
 test("group conversation discovery events are delivered to participants only", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   const clients = [];
   t.after(async () => {
     for (const socket of clients) socket.terminate();

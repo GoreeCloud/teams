@@ -20,7 +20,7 @@ async function newUser(app, username, invite) {
   return res.json().accessToken;
 }
 test("direct messages are unique, consent-scoped to a workspace pair, and omitted from regular channels", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async () => app.close());
   const alice = await newUser(app, "alice");
   const workspace = (await send(app, "GET", "/api/workspaces", alice)).json()[0];
@@ -73,7 +73,7 @@ test("migrating an existing channel database adds the DM kind safely", async t =
 });
 
 test("direct-message WebSocket events never reach an uninvolved workspace member", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   await app.listen({host:"127.0.0.1",port:0});
   const clients = [];
   t.after(async () => {

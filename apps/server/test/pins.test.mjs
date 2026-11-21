@@ -42,7 +42,7 @@ const putMessage = async (app, channel, token, body, parentId) => {
 
 test("pins obey viewer permissions, author/admin unpin policy, and message deletion lifecycle",
 async t => {
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async ()=>app.close());
   const {owner,member,outsider,workspace,general}=await setup(app);
   const first=await putMessage(app,general,owner,"Pin this team decision");
@@ -84,7 +84,7 @@ async t => {
 
 test("pins are capped at 50 per channel without a bypass through duplicate pin requests",
 async t => {
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async ()=>app.close());
   const {owner,general}=await setup(app);
   const pinned=[];
@@ -103,7 +103,7 @@ async t => {
 });
 
 test("pin events for private channels never reach unrelated workspace sockets", async t => {
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   const sockets=[];
   t.after(async()=>{
     for(const socket of sockets)socket.terminate();
@@ -144,10 +144,10 @@ test("pins persist across restart and are removed on soft-delete without damagin
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"teams-pin-persist-"));
   t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
   const filename=path.join(dir,"teams.sqlite");
-  const server=createServer({databaseFile:filename});
+  const server=createServer({databaseFile:filename,bootstrapToken:"synthetic-owner-setup-test-token-at-least-32-chars"});
   const session=await call(server,"POST","/api/auth/register",null,{
     username:"pin_persist_owner",displayName:"Persistence Owner",
-    password:"synthetic-persistent-pin-password-123"
+    password:"synthetic-persistent-pin-password-123",bootstrapToken:"synthetic-owner-setup-test-token-at-least-32-chars"
   });
   assert.equal(session.statusCode,201,session.body);
   const token=session.json().accessToken;

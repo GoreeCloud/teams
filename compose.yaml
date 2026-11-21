@@ -8,6 +8,8 @@ services:
       PORT: 3030
       TEAMS_DB_PATH: /data/teams.sqlite
       TEAMS_SITE_ORIGIN: ${TEAMS_SITE_ORIGIN:?Set a secure public HTTPS origin in .env}
+      # Empty after successful setup is valid; initial ownership requires a token.
+      TEAMS_BOOTSTRAP_TOKEN: ${TEAMS_BOOTSTRAP_TOKEN:-}
     ports:
       - "127.0.0.1:3030:3030"
     volumes:

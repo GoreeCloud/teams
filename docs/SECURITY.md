@@ -43,9 +43,22 @@ origin. Keep the HTTP backend bound to localhost. Back up the SQLite volume
 including WAL state using a verified SQLite online backup method, not arbitrary
 live-file copying. Restore only to a staged destination and test it. Protect
 filesystem permissions, host firewall, credentials, and reverse-proxy headers.
-Avoid public account bootstrapping: the **first registration is automatically
-the owner**. Place the server behind a trusted private network until initial
-setup completes.
+The first owner must present a separately configured, high-entropy
+`TEAMS_BOOTSTRAP_TOKEN` (32–256 characters) on persistent or web-serving
+instances. Missing or malformed operator configuration rejects first-owner
+registration with 503; wrong credentials reject with 403. The check compares
+fixed-size SHA-256 digests without writing tokens into SQLite or logging them.
+The token is never returned by `/api/config`. An in-memory developer test
+fixture must explicitly set `allowUnsafeMemoryBootstrap: true` to skip this
+check; that option rejects persisted, web-serving and production-mode use.
+Do not expose those test fixtures to any untrusted network. Once an owner exists, restarting without
+the token preserves normal login and invitations, but the token never grants
+future membership without an invite. Keep the secret out of Git, screenshots,
+telemetry, and exposed process environment listings. The sample Compose setup
+passes it as an environment variable: operator access to container metadata
+is a trusted boundary, not a secret store. Remove the variable after setup
+and recreate the container if policy permits. Use a private network and TLS
+regardless; this gate alone is not production Identity or MFA.
 
 ## Session-bound WebSocket authorization
 

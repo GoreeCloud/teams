@@ -8,7 +8,7 @@ const call = (app, method, url, accessToken, payload) =>
     headers: accessToken ? { authorization: "Bearer " + accessToken } : {} });
 
 test("cursor history is complete, stable, bounded and isolated by channel and thread", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async () => app.close());
   const session = await call(app, "POST", "/api/auth/register", null, {
     username: "history_owner", displayName: "History Owner", password: "synthetic-history-test-password"

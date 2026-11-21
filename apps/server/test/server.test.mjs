@@ -12,7 +12,7 @@ const get = (app, url, token) => app.inject({
 });
 
 test("bootstrap, invitations, channels, private membership, author checks and scoped search", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async () => app.close());
   const invalid = await post(app, "/api/auth/register", { username: "x", password: "bad" });
   assert.equal(invalid.statusCode, 400);
@@ -83,7 +83,7 @@ test("bootstrap, invitations, channels, private membership, author checks and sc
 });
 
 test("cookie-authenticated mutation requires an origin and WebSocket bearer is scoped", async t => {
-  const app = createServer();
+  const app = createServer({allowUnsafeMemoryBootstrap:true});
   const initial = await post(app, "/api/auth/register",
     {username:"founder",displayName:"Founder",password:"founder-password-abc123"});
   const secret = initial.json().accessToken;

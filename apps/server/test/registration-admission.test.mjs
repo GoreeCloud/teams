@@ -27,7 +27,7 @@ const createInvite = async (app,owner) => {
 };
 
 test("invitation guessing is bounded, forged forwarded IP headers cannot evade cap", async t => {
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async()=>app.close());
   const owner=await createOwner(app);
   const validInvite=await createInvite(app,owner);
@@ -49,7 +49,7 @@ test("invitation guessing is bounded, forged forwarded IP headers cannot evade c
 });
 
 test("successful invited registration releases the registration failure history", async t => {
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async()=>app.close());
   const owner=await createOwner(app);
   const invite=await createInvite(app,owner);
@@ -68,7 +68,7 @@ test("successful invited registration releases the registration failure history"
 });
 
 test("invalid bootstrap requests consume admission budget without creating an owner",async t=>{
-  const app=createServer();
+  const app=createServer({allowUnsafeMemoryBootstrap:true});
   t.after(async()=>app.close());
   for(let i=0;i<10;i++){
     const result=await app.inject({method:"POST",url:"/api/auth/register",

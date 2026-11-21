@@ -29,10 +29,21 @@ const cookieValue = (header, name) => {
 
 export function createServer({
   databaseFile = ":memory:", siteOrigin = "", serveWeb = false,
-  attachmentDirectory = null, scanAttachment = null
+  attachmentDirectory = null, scanAttachment = null,
+  bootstrapToken = process.env.TEAMS_BOOTSTRAP_TOKEN || null,
+  allowUnsafeMemoryBootstrap = false
 } = {}) {
+  // Reject unsafe test mode before opening any application state.
+  if (allowUnsafeMemoryBootstrap && (databaseFile !== ":memory:" || serveWeb ||
+      process.env.NODE_ENV === "production")) {
+    throw new Error("Unsafe bootstrap fixture cannot serve persisted or web applications");
+  }
   const app = Fastify({ logger: false, bodyLimit: 32 * 1024, trustProxy: false });
   const db = openDatabase(databaseFile);
+  const bootstrapTokenRequired = !allowUnsafeMemoryBootstrap;
+  const configuredBootstrapDigest = typeof bootstrapToken === "string" &&
+      bootstrapToken.length >= 32 && bootstrapToken.length <= 256
+    ? createHash("sha256").update(bootstrapToken).digest() : null;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2048 });
   const sockets = new Map();
   const loginLimiter = createLoginLimiter();
@@ -148,6 +159,7 @@ export function createServer({
   app.get("/api/health", async () => ({ status: "ok", product: "GoreeCloud Teams" }));
   app.get("/api/config", async () => ({
     bootstrapAvailable: db.prepare("SELECT count(*) AS total FROM users").get().total === 0,
+    bootstrapTokenRequired,
     title: "GoreeCloud Teams"
   }));
   app.post("/api/auth/register", async (req, reply) => {
@@ -163,6 +175,17 @@ export function createServer({
         return error(reply, 400, "Valid username, display name and password (12–256 characters) required");
       }
       const count = db.prepare("SELECT count(*) AS total FROM users").get().total;
+      if (count === 0 && bootstrapTokenRequired) {
+        if (!configuredBootstrapDigest) {
+          return error(reply, 503, "Owner setup token is not configured");
+        }
+        const submitted = typeof b.bootstrapToken === "string" &&
+            b.bootstrapToken.length <= 256 ? b.bootstrapToken : "";
+        const submittedDigest = createHash("sha256").update(submitted).digest();
+        if (!timingSafeEqual(configuredBootstrapDigest, submittedDigest)) {
+          return error(reply, 403, "Owner setup token is invalid");
+        }
+      }
       const invite = count > 0 && typeof b.invite === "string"
         ? db.prepare("SELECT * FROM invites WHERE token_hash=? AND used_at IS NULL AND expires_at>?")
             .get(hashToken(b.invite), Date.now()) : null;

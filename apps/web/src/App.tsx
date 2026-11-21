@@ -8,19 +8,20 @@ const errorMessage = (err: unknown) => err instanceof Error ? err.message : "Som
 function Avatar({ name, size = "normal" }: { name: string; size?: "normal" | "small" }) {
   return <span className={"avatar " + (size === "small" ? "avatar-sm" : "")} aria-hidden="true">{name.charAt(0).toUpperCase()}</span>;
 }
-function Welcome({ bootstrap, onLogin }: { bootstrap: boolean; onLogin: () => void }) {
+function Welcome({ bootstrap, requireOwnerToken, onLogin }: { bootstrap: boolean; requireOwnerToken: boolean; onLogin: () => void }) {
   const [register, setRegister] = useState(bootstrap);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [invite, setInvite] = useState("");
+  const [ownerToken, setOwnerToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setError("");
     try {
       await api("/auth/" + (register ? "register" : "login"), "POST",
-        register ? { username, displayName, password, invite: invite || undefined } : { username, password });
+        register ? { username, displayName, password, invite: invite || undefined, bootstrapToken: bootstrap ? ownerToken : undefined } : { username, password });
       onLogin();
     } catch (err) { setError(errorMessage(err)); } finally { setBusy(false); }
   }
@@ -34,6 +35,7 @@ function Welcome({ bootstrap, onLogin }: { bootstrap: boolean; onLogin: () => vo
         <label>Username<input autoComplete="username" minLength={3} maxLength={32} required value={username} onChange={e => setUsername(e.target.value)} placeholder="yourname" /></label>
         {register && <label>Display name<input autoComplete="name" required maxLength={80} value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="How your team sees you" /></label>}
         <label>Password<input type="password" autoComplete={register ? "new-password" : "current-password"} minLength={register ? 12 : undefined} required value={password} onChange={e => setPassword(e.target.value)} placeholder={register ? "At least 12 characters" : "Your password"} /></label>
+        {register && bootstrap && requireOwnerToken && <label>Owner setup token<input type="password" autoComplete="off" required minLength={32} maxLength={256} value={ownerToken} onChange={e => setOwnerToken(e.target.value)} placeholder="Private operator token from server configuration" /></label>}
         {register && !bootstrap && <label>Invitation code<input required value={invite} onChange={e => setInvite(e.target.value)} placeholder="Paste an invitation code" /></label>}
         {error && <p className="error" role="alert">{error}</p>}
         <button className="primary-button" type="submit" disabled={busy}>{busy ? "Please wait…" : register ? "Create account" : "Sign in"} <span aria-hidden="true">→</span></button>
@@ -88,6 +90,7 @@ function Composer({ channelName, onSend, parent, direct }: { channelName: string
 export default function App() {
   const [user, setUser] = useState<User|null>(null);
   const [bootstrap, setBootstrap] = useState(false);
+  const [requireOwnerToken, setRequireOwnerToken] = useState(false);
   const [loading, setLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspace, setWorkspace] = useState<Workspace|null>(null);
@@ -231,7 +234,7 @@ export default function App() {
   };
   const refreshSession = useCallback(async () => {
     try { const r = await api<{user:User}>("/me"); setUser(r.user); }
-    catch { setUser(null); const r = await api<{bootstrapAvailable:boolean}>("/config"); setBootstrap(r.bootstrapAvailable); }
+    catch { setUser(null); const r = await api<{bootstrapAvailable:boolean;bootstrapTokenRequired:boolean}>("/config"); setBootstrap(r.bootstrapAvailable); setRequireOwnerToken(r.bootstrapTokenRequired); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void refreshSession(); }, [refreshSession]);
@@ -651,7 +654,7 @@ export default function App() {
   };
   const logout = async () => { try { await api("/auth/logout", "POST"); } finally { setUser(null); setWorkspace(null); setWorkspaces([]); setChannel(null); setShowSessions(false); } };
   if (loading) return <main className="boot"><span className="brand-symbol">✳</span> GoreeCloud Teams</main>;
-  if (!user) return <Welcome bootstrap={bootstrap} onLogin={refreshSession}/>;
+  if (!user) return <Welcome bootstrap={bootstrap} requireOwnerToken={requireOwnerToken} onLogin={refreshSession}/>;
   return <div className="shell">
     <nav className="activity-rail" aria-label="Main navigation"><div className="rail-mark" title="GoreeCloud Teams">✳</div>
       <button className={"rail-action " + (!showSaved ? "active" : "")} aria-label="Messages" onClick={() => setShowSaved(false)}><MessageCircle size={22}/><span>Messages</span></button>
