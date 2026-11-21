@@ -90,8 +90,8 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - name: Install locked Teams source dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install locked Teams dependencies including SQLite native addon
+        run: npm ci --no-audit --no-fund
       - name: Build the real React Teams web bundle
         run: npm run build
       - name: Install independent Playwright Core and matching Chromium in ephemeral runner
@@ -116,6 +116,8 @@ jobs:
         run: |
           mkdir -p apps/web/qa/screenshots
           GC_TEAMS_QA_SCREENSHOTS_DIR="$GITHUB_WORKSPACE/apps/web/qa/screenshots" node apps/web/qa/browser-acceptance.mjs
+      - name: Verify real authenticated chat flow against temporary local SQLite server
+        run: node apps/web/qa/live-workflow-acceptance.mjs
       - name: Preserve only synthetic login screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # verified official v4

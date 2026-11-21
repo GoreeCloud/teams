@@ -28,6 +28,26 @@ The new independent `web-browser-acceptance` GitHub job installs pinned Playwrig
 
 ## Open acceptance
 
-Human Orca/TalkBack/NVDA/VoiceOver, long localized strings/RTL, true supported Firefox/Safari zoom and official Apple Safari, founder premium visual signoff, native Android/Flutter and Linux screens, real Teams login/session/channel/message flow, backend synchronization/privacy/security and recovery, service release and deployment all **remain unverified**. GoreeCloud UI provides visual semantics only; GoreeShield privacy, Wardveil cybersecurity, Mesh connectivity and GoreeCloud Identity remain separately governed.
+Human Orca/TalkBack/NVDA/VoiceOver, long localized strings/RTL, true supported Firefox/Safari zoom and official Apple Safari, founder premium visual signoff, native Android/Flutter and Linux screens, live-account Teams login/session/channel/message acceptance, backend synchronization/privacy/security and recovery, service release and deployment all **remain unverified**. The additional local-only synthetic real-backend browser flow below is narrower than device or production acceptance. GoreeCloud UI provides visual semantics only; GoreeShield privacy, Wardveil cybersecurity, Mesh connectivity and GoreeCloud Identity remain separately governed.
 
 Rollback requires normal protected-source revert. No production state or existing credential/session data is migrated by this work.
+
+
+## Additional authenticated browser acceptance (development source)
+
+The separate source-controlled
+`apps/web/qa/live-workflow-acceptance.mjs` uses the **real React bundle,
+Fastify API, SQLite and WebSocket** inside a temporary 0700 local directory,
+without any production credentials or off-origin network access. It requires
+the existing pinned Playwright Core and Chromium paths, initializes a synthetic
+owner with a random private operator setup token, and walks through sending a
+message, saving it, pinning it, navigating Saved for later, signing out and
+re-authenticating. It asserts the same-origin WebSocket and independently
+unauthorized API response. All synthetic data is deleted on exit; no
+authenticated screenshots are published.
+
+The protected `web-browser-acceptance` CI job now installs the locked SQLite
+native dependency and runs this additional browser workflow after the
+existing anonymous login and color/resize checks. This is browser/source
+acceptance only, **not** private-messaging security certification,
+multi-device chat acceptance or live production behavior.
