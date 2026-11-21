@@ -102,8 +102,12 @@ The operator-controlled `npm run backup:bundle` workflow verifies a standalone
 SQLite snapshot and its referenced private file blobs before writing a
 completion marker. Backups remain plaintext and unsigned, and in-process
 integrity checks do not prove authenticity against a write-capable adversary.
-Off-host encryption, independent retention, operator recovery authorization,
-scheduled execution and production restore drills remain unverified.
+A separate opt-in host-side age CLI can encrypt an already-verified complete
+bundle to a private, atomic no-overwrite ciphertext archive without writing
+an intermediate plaintext tar. It does not store identity secrets, transfer
+copies off-host or prove owner key custody. Independent retention, operator
+recovery authorization, scheduled execution, real staged restore and off-host
+availability remain unverified. See [BACKUPS.md](BACKUPS.md).
 
 ## Attachment trust boundary (disabled by default)
 

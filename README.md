@@ -131,6 +131,11 @@ preferred future deployment owner when installed and independently verified;
 the Compose recipe is a portable alternative. A tested backup/restore process
 is required before production.
 
+An opt-in [recipient-encrypted backup archive](docs/BACKUPS.md) workflow can
+wrap a previously verified private SQLite+attachment bundle using the
+established `age` CLI. It neither transfers copies off-host nor provides
+recovery-key custody, scheduling, or a production recovery drill.
+
 ## Repository layout
 
 | Directory | Contents |
@@ -154,8 +159,10 @@ GoreeCloud UI: [gc-ui](https://github.com/GoreeCloud/gc-ui) is the design
 authority; its current semantic values are alpha, not founder-approved final
 branding. The [source-bound Teams web token-adoption report](docs/GC_UI_WEB_ADOPTION_20261120.md)
 records the exact first-party CSS snapshot, MIT provenance, automatic OS appearance
-handling, regression test and deliberate web-only scope. Flutter native adoption,
-founder visual approval, browser support certification and Stable release remain open.
+handling and regression tests. Flutter Linux/Android now also consumes
+source-pinned canonical color values via a deterministic Dart generator;
+Android Material 3 Expressive interaction adoption, founder visual approval,
+browser/device support certification and Stable release remain open.
 GoreeShield handles privacy, Wardveil cybersecurity, GoreeCloud Identity access
 management and GoreeCloud Mesh integrations. Cross-product services are not claimed
 operational merely because their contracts exist.
