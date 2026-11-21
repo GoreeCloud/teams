@@ -41,7 +41,7 @@ jobs:
       - name: Verify bundle and create unsigned checksummed artifact
         run: bash scripts/ci-linux-release-package.sh apps/native/build/linux/x64/release/bundle apps/native/build/release-artifacts
       - name: Save short-lived preview artifact (never a signed Stable release)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # official v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # official v7.0.2
         with:
           name: goreecloud-teams-linux-x64-release-unsigned-preview
           path: apps/native/build/release-artifacts/

@@ -71,7 +71,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
       - working-directory: apps/native
         run: flutter pub get && flutter build linux --debug
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, verified tag commit
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v4, verified tag commit
         with:
           name: goreecloud-teams-linux-x64-debug
           path: apps/native/build/linux/x64/debug/bundle/
@@ -94,7 +94,7 @@ jobs:
           cache: true
       - working-directory: apps/native
         run: flutter pub get && bash ../../scripts/ci-android-maven-backoff.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, verified tag commit
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v4, verified tag commit
         with:
           name: goreecloud-teams-android-debug
           path: apps/native/build/app/outputs/flutter-apk/app-debug.apk
@@ -143,7 +143,7 @@ jobs:
         run: node apps/web/qa/live-workflow-acceptance.mjs
       - name: Preserve only synthetic login screenshots
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # verified official v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # verified official v7.0.2
         with:
           name: teams-web-synthetic-browser-evidence
           path: apps/web/qa/screenshots/teams-*.png
