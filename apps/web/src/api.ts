@@ -24,7 +24,9 @@ export function reconcileRecentMessages(previous: Message[], recent: Message[]):
 export async function api<T>(url: string, method = "GET", body?: object): Promise<T> {
   const response = await fetch("/api" + url, {
     method, credentials: "same-origin",
-    headers: { "content-type": "application/json" },
+    // Fastify rejects empty requests that claim to have a JSON body. Several
+    // legitimate mutations (save, pin, logout) intentionally have no body.
+    headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   const payload = await response.json().catch(() => ({}));
