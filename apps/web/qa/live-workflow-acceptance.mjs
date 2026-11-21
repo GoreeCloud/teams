@@ -85,8 +85,17 @@ try {
     await article.focus();
     assert.equal(await article.evaluate(node=>document.activeElement===node),true);
     await article.getByRole("button",{name:"Save message for later"}).waitFor();
+    const saveResponse=page.waitForResponse(response=>
+      response.url().includes("/api/messages/") &&
+      response.url().endsWith("/save") &&
+      response.request().method()==="POST");
     await article.getByRole("button",{name:"Save message for later"}).click();
-    await article.getByRole("button",{name:"Remove saved message"}).waitFor();
+    assert.equal((await saveResponse).status(),200,"real server must accept the saved-message mutation");
+    // Hover-only action chrome may close after a state update; verify that
+    // the saved state actually changed in the DOM, then re-focus for pinning.
+    await article.locator('button[aria-label="Remove saved message"]')
+      .waitFor({state:"attached"});
+    await article.focus();
     await article.getByRole("button",{name:"Pin message"}).click();
     await article.locator(".pinned-indicator").waitFor();
     await page.getByRole("button",{name:"View pinned messages"}).click();
