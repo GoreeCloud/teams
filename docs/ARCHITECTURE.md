@@ -25,6 +25,11 @@ All clients ───────WebSocket───┘         └── Scoped 
   in-process registration admission limits invite guessing and Argon2id
   creation hashes (10 failures/15 minutes, 1 per IP and 2 global in flight,
   1,024 retained keyed buckets).
+- Official server launch: production entrypoint validation requires a real
+  canonical external HTTPS origin, an explicit valid TCP port and absolute
+  state paths before constructing Fastify or opening SQLite; this does not
+  validate TLS proxy configuration or prevent a separately misconfigured
+  network binding.
 - Sessions: opaque tokens, hashed in the sessions table, 30-day expiry; owner
   bootstrap with an operator-controlled first-owner setup token by default;
   only explicitly opted-in in-memory test fixtures bypass this; new members
