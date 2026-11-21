@@ -80,6 +80,11 @@ try {
     const article=conversation.locator("article.message").filter({hasText:message});
     await article.waitFor();
     assert.equal(await article.locator(".message-body").innerText(),message);
+    // Message action toolbar is hover/focus-revealed, not permanently shown.
+    // Keyboard focus must expose accessible actions without a pointing device.
+    await article.focus();
+    assert.equal(await article.evaluate(node=>document.activeElement===node),true);
+    await article.getByRole("button",{name:"Save message for later"}).waitFor();
     await article.getByRole("button",{name:"Save message for later"}).click();
     await article.getByRole("button",{name:"Remove saved message"}).waitFor();
     await article.getByRole("button",{name:"Pin message"}).click();

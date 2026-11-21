@@ -94,6 +94,7 @@ h1,h2,h3,p { margin-top:0 } .muted { color:var(--text-soft); line-height:1.6 } .
 .channel-intro p { max-width:62ch; color:var(--text-soft); font-size:.87rem; line-height:1.65; margin:0 }
 .message { position:relative; display:flex; align-items:flex-start; gap:14px; margin:3px -12px; padding:13px 12px; border-radius:12px }
 .message:hover { background:#ffffff08 }
+.message:focus-visible { outline:2px solid var(--gc-focus-ring); outline-offset:-2px }
 .message-content { min-width:0; flex:1 }
 .message-head { display:flex; align-items:baseline; gap:10px; font-size:.85rem }
 .message-head strong { font-weight:800 }
