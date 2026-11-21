@@ -18,6 +18,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Verify transient Maven retry is fail-closed
+        run: node --test scripts/ci-android-maven-backoff.test.mjs
       - run: npm audit --omit=dev --audit-level=high
   backup-encryption:
     name: backup-encryption
@@ -91,7 +93,7 @@ jobs:
           channel: stable
           cache: true
       - working-directory: apps/native
-        run: flutter pub get && flutter build apk --debug
+        run: flutter pub get && bash ../../scripts/ci-android-maven-backoff.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, verified tag commit
         with:
           name: goreecloud-teams-android-debug

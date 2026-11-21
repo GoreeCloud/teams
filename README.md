@@ -89,6 +89,14 @@ shipped server until an independently verified Wardveil scanner is configured,
 and no client attachment interface is enabled.** Do not expose attachments
 publicly. See [attachment trust boundaries and recovery gaps](docs/ATTACHMENTS.md).
 
+## Android CI dependency reliability
+
+The protected Android debug build now allows a bounded 20/40-second
+retry **only** for verified Maven Central HTTP 429 failures. Compiler,
+toolchain, authentication and other failures remain fatal; retries never
+substitute for a passing Android build. See
+[Android CI retry policy](docs/ANDROID_CI_RELIABILITY.md).
+
 ## Supply-chain verification
 
 GitHub Actions are pinned to verified commit IDs instead of mutable version
