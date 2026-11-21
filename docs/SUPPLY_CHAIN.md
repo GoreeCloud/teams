@@ -25,3 +25,15 @@ artifacts, SBOM review, malware scanning and runtime hardening.
 
 The Linux and Android CI artifacts are **debug** outputs with short
 retention and are not signed Stable production releases.
+
+## Production container packaging — separate acceptance
+
+The additional \`container-acceptance\` workflow builds the actual Dockerfile
+on ephemeral GitHub-hosted Ubuntu and starts a synthetic instance with
+networking disabled. It checks non-root process identity, private data
+permissions and startup safety. This test cannot establish provenance or
+reproducibility of the base container image: the Dockerfile still refers
+to a mutable \`node:24-bookworm-slim\` tag. Base-image digest pinning,
+reproducible rebuilds, SBOM and image signatures remain open before a
+signed production release. This CI does not publish an image to a registry
+or access live volumes/credentials.
