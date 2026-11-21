@@ -1,5 +1,6 @@
 import { createServer } from "./server.mjs";
 import { LaunchConfigurationError, readLaunchConfiguration } from "./launch-config.mjs";
+import { PrivateDatabaseError } from "./private-database.mjs";
 
 let app;
 try {
@@ -24,6 +25,9 @@ try {
   // printing raw environment, database contents, or a bootstrap token.
   if (error instanceof LaunchConfigurationError) {
     console.error("Teams startup configuration rejected: " + error.message);
+  } else if (error instanceof PrivateDatabaseError) {
+    // This message is a fixed permission label; never print private paths.
+    console.error("Teams private database storage rejected: " + error.message);
   } else {
     console.error("Teams startup failed before a verified listener was available");
   }

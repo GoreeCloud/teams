@@ -1,11 +1,13 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
+import {
+  preparePrivateDatabaseFile, verifyPrivateDatabaseFiles
+} from "./private-database.mjs";
 
 export function openDatabase(filename) {
-  if (filename !== ":memory:") fs.mkdirSync(path.dirname(path.resolve(filename)), { recursive: true, mode: 0o700 });
-  const db = new Database(filename);
+  const location = filename === ":memory:"
+    ? filename : preparePrivateDatabaseFile(filename);
+  const db = new Database(location);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
@@ -135,5 +137,12 @@ export function openDatabase(filename) {
     CREATE INDEX IF NOT EXISTS group_conversations_workspace ON group_conversations(workspace_id);
 
   `);
+  if (location !== ":memory:") {
+    try { verifyPrivateDatabaseFiles(location); }
+    catch (error) {
+      db.close();
+      throw error;
+    }
+  }
   return db;
 }

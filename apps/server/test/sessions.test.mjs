@@ -118,6 +118,9 @@ test("legacy sessions migrate to stable public IDs without inventing a creation 
   legacy.exec("CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,user_id TEXT,expires_at INTEGER);"+
               "INSERT INTO sessions VALUES('synthetic-legacy-digest','synthetic-user',9999999999999);");
   legacy.close();
+  // The original synthetic schema is old, not public-readable. Harden its
+  // file mode before exercising schema migration on the secured server.
+  fs.chmodSync(filename,0o600);
   const upgraded = openDatabase(filename);
   const row = upgraded.prepare("SELECT id,created_at AS createdAt FROM sessions WHERE token_hash=?")
     .get("synthetic-legacy-digest");

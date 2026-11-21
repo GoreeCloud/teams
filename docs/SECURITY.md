@@ -46,6 +46,31 @@ downloads dependencies. Cross-client parity and exact-source SHA-256 are
 checked in CI. This is not Android Material 3 Expressive acceptance or a
 GoreeCloud Identity/Mesh/Wardveil security implementation.
 
+## Private SQLite and WAL/SHM permissions
+
+**Verified gap closed in source:** under a permissive process umask, raw SQLite
+creation previously produced database, WAL and SHM files with mode **0644**.
+The secured storage path now creates the new main SQLite file with an
+**exclusive, no-follow 0600 open before SQLite initializes it**. SQLite then
+inherits 0600 for WAL/SHM sidecars. The parent storage directory must be a
+real, owner-controlled **0700** directory with no symlinked path components;
+existing database and sidecar files must be single-owner, regular **0600**
+files without symlinks or hardlinks. Unsafe existing modes fail **before
+opening the database**, and the server refuses to silently chmod, move or
+overwrite existing operator data. Memory-only test fixtures are unaffected.
+The official launch entrypoint reports a static private-storage error category
+without disclosing the database path or any setup credentials.
+
+The portable Docker image configures `/data` as **0700** and owned by the
+non-root Node user. This does not automatically repair an already-mounted
+volume with weaker permissions. An operator upgrading an existing local
+database must stop the service, preserve a verified private backup, inspect
+the directory and SQLite files for ownership, links and exposure, explicitly
+repair unsafe modes **while offline**, and only then restart and run staged
+readback checks. Do not blindly relax this guard or erase historical private
+data. This security measure does not replace volume encryption, host access
+control, independent off-host recovery, or a complete Wardveil privacy audit.
+
 ## Fail-closed production launch preflight
 
 The shipped server entrypoint now validates operator network/storage settings
