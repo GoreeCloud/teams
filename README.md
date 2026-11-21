@@ -126,6 +126,12 @@ docker compose up --build -d
 ```
 
 The sample binds only to `127.0.0.1:3030` and mounts persistent `teams_data`.
+The non-root container directory is owner-only (0700), and the
+SQLite database and WAL/SHM sidecars must be private 0600 files. A preexisting
+0755 directory or 0644 database intentionally fails closed; an authorized
+operator must first back up, inspect, and privately secure the old data.
+No existing database permissions are silently modified; see
+[security guidance](docs/SECURITY.md).
 Do not expose plain HTTP to the public internet. GoreeCloud Containers is the
 preferred future deployment owner when installed and independently verified;
 the Compose recipe is a portable alternative. A tested backup/restore process

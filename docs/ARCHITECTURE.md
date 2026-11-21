@@ -8,6 +8,12 @@ All clients ───────WebSocket───┘         └── Scoped 
 ```
 
 - Source of truth: user-owned SQLite on the self-hosted server.
+- File-backed SQLite permission boundary: new database files are pre-created
+  exclusively at mode 0600 under a real, owner-only 0700 directory; SQLite
+  then creates WAL/SHM with 0600. Existing unsafe database/sidecar paths
+  or symlink/hardlink references reject startup without modifying legacy
+  data. The container's /data directory is configured as 0700. This does
+  not provide disk encryption, an off-host backup, or live-host acceptance.
 - Web app: React 19 + Vite, same-origin API and WebSocket (no tokens in
   browser storage). GoreeCloud UI semantic tokens inform both themes.
 - Native GoreeCloud UI semantic colors: reviewed, MIT-licensed alpha registry

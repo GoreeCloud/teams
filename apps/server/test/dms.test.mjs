@@ -66,6 +66,9 @@ test("migrating an existing channel database adds the DM kind safely", async t =
     is_private INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
   ); INSERT INTO channels VALUES ('old','workspace','general',0,'2026-01-01T00:00:00Z');`);
   legacy.close();
+  // The original synthetic schema is old, not public-readable. Harden its
+  // file mode before exercising schema migration on the secured server.
+  fs.chmodSync(filename,0o600);
   const migrated = openDatabase(filename);
   t.after(() => migrated.close());
   assert.equal(migrated.prepare("SELECT kind FROM channels WHERE id='old'").get().kind, "channel");
