@@ -22,6 +22,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Reconnecting web real-time transport with recent-history catch-up after interruptions
 - Responsive React/TypeScript web client with GoreeCloud UI semantic alpha tokens
 - Flutter Linux graphical app and Flutter Android app (native framework and runners)
+- Native Flutter theme colors generated from source-pinned canonical GoreeCloud UI semantic tokens (alpha)
 - SQLite persistence with WAL, Argon2id password hashes, bounded login/registration admission and opaque sessions
 - Session listing and individual/other-session revocation in web, Linux and Android
 - A fail-closed, scanner-gated private attachment API foundation (not enabled by default)

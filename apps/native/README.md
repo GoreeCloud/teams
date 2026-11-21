@@ -15,6 +15,21 @@ flutter run -d linux
 flutter build apk --debug
 ```
 
+## GoreeCloud UI canonical native colors
+
+Flutter colors for Android and Linux now use the deterministic generated
+`lib/generated/gc_ui_tokens.g.dart` constants from the first-party MIT
+GoreeCloud UI alpha token registry. Source snapshot, license, reviewed source
+commit and strict generation/check commands are in
+[`tool/gc-ui/README.md`](tool/gc-ui/README.md). Run
+`npm run verify:native-ui-tokens` from the monorepo root before accepting
+theme updates. The canonical semantic values match the source-pinned React
+web theme, without inventing a competing native palette.
+
+This is source-level adoption of the **colors only**; Android Material 3
+Expressive motion/layout, native-device accessibility, and final visual
+acceptance remain separate. Flutter stays the approved native Linux UI.
+
 The client prompts for a self-hosted Teams server and refuses remote HTTP
 without TLS. Bearer tokens are held in memory, not persisted across restarts. For
 first-owner setup of a persisted/hosted server, the Linux and Android login
