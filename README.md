@@ -132,6 +132,15 @@ The Linux runner is a Flutter GTK embedder, with **Flutter** as the primary UI
 framework (per GoreeCloud's Linux UI requirement). The generated Android and
 Linux runners are included in the repository.
 
+## Unsigned Linux release preview
+
+The independent \`native-linux-release\` CI job compiles Flutter Linux in
+release mode and uploads a checksummed, seven-day **unsigned preview**
+archive. The packaging script uses atomic no-overwrite output and
+synthetic corruption tests. This is not a signed distro installer or
+verified real-device release. See
+[Linux preview packaging and remaining gates](docs/LINUX_PREVIEW_PACKAGING.md).
+
 ## Container deployment
 
 ```bash

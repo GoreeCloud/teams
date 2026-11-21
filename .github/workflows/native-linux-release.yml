@@ -1,0 +1,49 @@
+name: Verify unsigned Teams Linux release package
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-linux-release:
+    name: native-linux-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # official v4
+        with:
+          persist-credentials: false
+      - name: Set up Node for synthetic packaging tests
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # official v4
+        with:
+          node-version: "24"
+      - name: Verify archive and checksum failure modes
+        run: |
+          bash -n scripts/ci-linux-release-package.sh
+          node --test scripts/ci-linux-release-package.test.mjs
+      - name: Set up pinned Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # official v2
+        with:
+          flutter-version: "3.27.4"
+          channel: stable
+          cache: true
+      - name: Install Linux GTK build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - name: Compile the real Linux release bundle
+        working-directory: apps/native
+        run: flutter pub get && flutter build linux --release
+      - name: Verify bundle and create unsigned checksummed artifact
+        run: bash scripts/ci-linux-release-package.sh apps/native/build/linux/x64/release/bundle apps/native/build/release-artifacts
+      - name: Save short-lived preview artifact (never a signed Stable release)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # official v4
+        with:
+          name: goreecloud-teams-linux-x64-release-unsigned-preview
+          path: apps/native/build/release-artifacts/
+          if-no-files-found: error
+          retention-days: 7
