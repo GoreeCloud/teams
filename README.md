@@ -142,8 +142,12 @@ Slack/Mattermost proprietary source has been imported. See the
 
 GoreeCloud UI: [gc-ui](https://github.com/GoreeCloud/gc-ui) is the design
 authority; its current semantic values are alpha, not founder-approved final
-branding. GoreeShield handles privacy, Wardveil cybersecurity, GoreeCloud
-Identity access management and GoreeCloud Mesh integrations. Cross-product
-services are not claimed operational merely because their contracts exist.
+branding. The [source-bound Teams web token-adoption report](docs/GC_UI_WEB_ADOPTION_20261120.md)
+records the exact first-party CSS snapshot, MIT provenance, automatic OS appearance
+handling, regression test and deliberate web-only scope. Flutter native adoption,
+founder visual approval, browser support certification and Stable release remain open.
+GoreeShield handles privacy, Wardveil cybersecurity, GoreeCloud Identity access
+management and GoreeCloud Mesh integrations. Cross-product services are not claimed
+operational merely because their contracts exist.
 
 **Maintainer:** GoreeCloud. Contributions should use reviewable pull requests.

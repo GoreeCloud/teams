@@ -14,3 +14,5 @@ coverage/
 *.log
 
 *.tsbuildinfo
+# Synthetic Playwright snapshots are source-reviewed; CI artifacts are ephemeral.
+apps/web/qa/screenshots/
