@@ -107,7 +107,18 @@ backend has `trustProxy: false`.
 
 Rate-limit keys are HMAC-SHA256 digests under a new random key for each
 process, never raw client IPs. They are not logged or persisted and expired
-inactive buckets are recycled on subsequent attempts. There is no
+inactive buckets are recycled on subsequent attempts.
+
+Registration has an **independent** ten-failure/15-minute admission
+budget per socket IP, at most one concurrent registration hash per IP, two
+globally, and 1,024 transient hashed-IP buckets. This bounds public owner
+bootstrap, invite guessing and Argon2id hashing without using untrusted proxy
+headers. Successful registration clears that IP's registration failures;
+it does not clear login failures. Behind a single reverse proxy, users may
+share the same IP-level quota. This is a per-process safeguard, not a
+distributed WAF, Identity service or invitation-abuse audit.
+
+There is no
 cross-instance distributed limiter, production perimeter abuse control,
 background key expiry task, or independent security audit; these remain
 acceptance requirements before external deployment.
