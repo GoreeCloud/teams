@@ -119,7 +119,10 @@ Linux runners are included in the repository.
 ```bash
 cp .env.example .env
 chmod 600 .env
-# Set TEAMS_SITE_ORIGIN and a randomly generated TEAMS_BOOTSTRAP_TOKEN in .env.
+# Replace the .example TEAMS_SITE_ORIGIN placeholder with the real external
+# HTTPS origin (no trailing slash/path). Production refuses placeholder,
+# non-HTTPS or missing origins and relative SQLite paths before startup.
+# Set a randomly generated TEAMS_BOOTSTRAP_TOKEN in .env.
 # Treat .env and Docker environment inspection as sensitive; do not paste secrets in logs.
 # Configure a trusted TLS proxy before exposing any service.
 docker compose up --build -d
