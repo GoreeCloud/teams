@@ -96,6 +96,16 @@ tags. `npm run verify:action-pins` checks workflow pins and their approved
 repositories. Dependabot opens reviewable weekly npm/Actions update PRs, but
 does not auto-merge or deploy them. See [supply-chain checks and limits](docs/SUPPLY_CHAIN.md).
 
+## Isolated production container acceptance
+
+The separate \`container-acceptance\` CI job builds the real production
+Docker image and tests it as a non-root process with no external network
+or published host ports. It checks refusal of placeholder origins and
+unsafe storage, then verifies synthetic health and 0700/0600 SQLite,
+WAL and SHM permissions. This is packaging verification—not an
+authorized VPS deployment, approved TLS proxy, live restore or release.
+See [container acceptance scope and gaps](docs/CONTAINER_ACCEPTANCE.md).
+
 ## Native Linux / Android
 
 ```bash

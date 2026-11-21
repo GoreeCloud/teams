@@ -1,0 +1,25 @@
+name: Verify Teams production container
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  container-acceptance:
+    name: container-acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out pinned source with no persisted token
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # official v4
+        with:
+          persist-credentials: false
+      - name: Build production Teams image in the ephemeral runner
+        run: docker build --pull --tag goreecloud-teams:ci .
+      - name: Validate isolated runtime, startup denial, and 0600 SQLite sidecars
+        run: bash scripts/ci-container-acceptance.sh goreecloud-teams:ci
