@@ -27,7 +27,7 @@ documentation. **Not production ready; no stable release or deployment verified.
 - Session listing and individual/other-session revocation in web, Linux and Android
 - A fail-closed, scanner-gated private attachment API foundation (not enabled by default)
 - Optional operator-driven, verified SQLite-plus-private-attachments backup bundle (not encrypted or scheduled)
-- Basic API tests, Flutter widget test, Linux desktop and Android APK CI jobs with temporary debug artifacts
+- Automated backend/web and synthetic real-browser authenticated messaging acceptance, Flutter widget tests, Linux desktop and Android debug APK CI jobs
 
 **Not yet supported:** end-to-end file attachments in clients or live scanner
 integration (API groundwork only), editing group membership, voice/video calls, advanced

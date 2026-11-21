@@ -55,7 +55,7 @@ function MessageRow({ message, me, onReply, onReaction, onEdit, onDelete, onSave
   onSave: (message: Message) => void; saved: boolean; saving: boolean;
   onPin?: (message: Message) => void; canModerate?: boolean;
 }) {
-  return <article className="message" aria-label={"Message from " + message.author}>
+  return <article className="message" tabIndex={0} aria-label={"Message from " + message.author}>
     <Avatar name={message.author}/>
     <div className="message-content"><div className="message-head"><strong>{message.author}</strong><time dateTime={message.createdAt}>{shortTime(message.createdAt)}</time>{message.editedAt && <span className="edited">edited</span>}{message.pinnedBy && <span className="pinned-indicator"><Pin size={12}/> Pinned</span>}</div>
       {message.deletedAt ? <p className="deleted">Message deleted</p> : <p className="message-body">{message.body}</p>}
@@ -233,8 +233,19 @@ export default function App() {
     setChannel(target); setThread(null); setSearchResults(null); setShowSaved(false);
   };
   const refreshSession = useCallback(async () => {
-    try { const r = await api<{user:User}>("/me"); setUser(r.user); }
-    catch { setUser(null); const r = await api<{bootstrapAvailable:boolean;bootstrapTokenRequired:boolean}>("/config"); setBootstrap(r.bootstrapAvailable); setRequireOwnerToken(r.bootstrapTokenRequired); }
+    try {
+      const r = await api<{user:User}>("/me");
+      setUser(r.user);
+      // A successful account session proves initial owner setup completed.
+      // Do not offer the first-owner form after sign-out in this same tab.
+      setBootstrap(false);
+      setRequireOwnerToken(false);
+    } catch {
+      setUser(null);
+      const r = await api<{bootstrapAvailable:boolean;bootstrapTokenRequired:boolean}>("/config");
+      setBootstrap(r.bootstrapAvailable);
+      setRequireOwnerToken(r.bootstrapTokenRequired);
+    }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void refreshSession(); }, [refreshSession]);
