@@ -16,7 +16,10 @@ All clients ───────WebSocket───┘         └── Scoped 
 - Authentication admission: bounded HMAC-keyed per-IP login failure windows
   (10 failures/15 minutes, 2 concurrent per socket IP, 8 global, max 2,048
   transient buckets). No persistence of rate-limit IPs or proxy header trust.
-  Not a distributed, production-grade abuse-control layer.
+  Not a distributed, production-grade abuse-control layer. A separate bounded
+  in-process registration admission limits invite guessing and Argon2id
+  creation hashes (10 failures/15 minutes, 1 per IP and 2 global in flight,
+  1,024 retained keyed buckets).
 - Sessions: opaque tokens, hashed in the sessions table, 30-day expiry; owner
   bootstrap with an operator-controlled first-owner setup token by default;
   only explicitly opted-in in-memory test fixtures bypass this; new members

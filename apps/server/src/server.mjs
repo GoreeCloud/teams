@@ -47,6 +47,13 @@ export function createServer({
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2048 });
   const sockets = new Map();
   const loginLimiter = createLoginLimiter();
+  // Account creation also performs an expensive Argon2id hash. Use an
+  // independent admission budget so invite guessing, malformed registration
+  // and registration bursts cannot exhaust password-check capacity or
+  // interfere with legitimate login failure windows.
+  const registrationLimiter = createLoginLimiter({
+    maxFailures: 10, maxEntries: 1024, maxInFlight: 2, maxPerIpInFlight: 1
+  });
   const getUser = id => db.prepare("SELECT id, username, display_name AS displayName FROM users WHERE id=?").get(id);
   const workspaceRole = (userId, workspaceId) => db.prepare(
     "SELECT role FROM memberships WHERE user_id=? AND workspace_id=?"
@@ -156,56 +163,64 @@ export function createServer({
     title: "GoreeCloud Teams"
   }));
   app.post("/api/auth/register", async (req, reply) => {
-    const b = req.body || {};
-    if (!USERNAME.test(b.username || "") || !validText(b.displayName, 80) ||
-        typeof b.password !== "string" || b.password.length < 12 || b.password.length > 256) {
-      return error(reply, 400, "Valid username, display name and password (12–256 characters) required");
-    }
-    const count = db.prepare("SELECT count(*) AS total FROM users").get().total;
-    if (count === 0 && bootstrapTokenRequired) {
-      if (!configuredBootstrapDigest) {
-        return error(reply, 503, "Owner setup token is not configured");
-      }
-      // Fixed-length SHA-256 digests avoid timing differences between raw
-      // token values. Neither the token nor its digest enters SQLite or logs.
-      const submitted = typeof b.bootstrapToken === "string" &&
-          b.bootstrapToken.length <= 256 ? b.bootstrapToken : "";
-      const submittedDigest = createHash("sha256").update(submitted).digest();
-      if (!timingSafeEqual(configuredBootstrapDigest, submittedDigest)) {
-        return error(reply, 403, "Owner setup token is invalid");
-      }
-    }
-    const invite = count > 0 && typeof b.invite === "string"
-      ? db.prepare("SELECT * FROM invites WHERE token_hash=? AND used_at IS NULL AND expires_at>?")
-          .get(hashToken(b.invite), Date.now()) : null;
-    if (count > 0 && !invite) return error(reply, 403, "Registration requires an invitation");
-    const id = randomUUID(), created = now();
-    const digest = await argon2.hash(b.password, { type: argon2.argon2id });
+    // The raw socket address, not untrusted proxy forwarding headers, is the
+    // source of the in-process throttle key. Nothing is persisted or logged.
+    const admission = registrationLimiter.begin(req.ip || "unknown");
+    if (!admission) return error(reply, 429, "Too many attempts. Try again later.");
+    let succeeded = false;
     try {
-      db.transaction(() => {
-        if (db.prepare("SELECT 1 FROM users WHERE username=?").get(b.username)) throw new Error("USERNAME_EXISTS");
-        if (count === 0) {
-          if (db.prepare("SELECT count(*) AS total FROM users").get().total !== 0) throw new Error("RACE");
-        } else if (db.prepare("UPDATE invites SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>?")
-          .run(Date.now(), hashToken(b.invite), Date.now()).changes !== 1) throw new Error("INVITE_USED");
-        db.prepare("INSERT INTO users VALUES(?,?,?,?,?)")
-          .run(id, b.username.trim(), b.displayName.trim(), digest, created);
-        if (count === 0) {
-          const workspaceId = randomUUID();
-          db.prepare("INSERT INTO workspaces VALUES(?,?,?,?)").run(workspaceId, "GoreeCloud Teams", id, created);
-          db.prepare("INSERT INTO memberships VALUES(?,?,?)").run(workspaceId, id, "owner");
-          for (const name of ["general", "projects", "random"]) {
-            db.prepare("INSERT INTO channels(id,workspace_id,name,is_private,created_at) VALUES(?,?,?,?,?)").run(randomUUID(), workspaceId, name, 0, created);
-          }
-        } else {
-          db.prepare("INSERT INTO memberships VALUES(?,?,?)").run(invite.workspace_id, id, invite.role);
+      const b = req.body || {};
+      if (!USERNAME.test(b.username || "") || !validText(b.displayName, 80) ||
+          typeof b.password !== "string" || b.password.length < 12 || b.password.length > 256) {
+        return error(reply, 400, "Valid username, display name and password (12–256 characters) required");
+      }
+      const count = db.prepare("SELECT count(*) AS total FROM users").get().total;
+      if (count === 0 && bootstrapTokenRequired) {
+        if (!configuredBootstrapDigest) {
+          return error(reply, 503, "Owner setup token is not configured");
         }
-      })();
-    } catch (e) {
-      return error(reply, e.message === "USERNAME_EXISTS" ? 409 : 409, "Username or invitation no longer available");
+        const submitted = typeof b.bootstrapToken === "string" &&
+            b.bootstrapToken.length <= 256 ? b.bootstrapToken : "";
+        const submittedDigest = createHash("sha256").update(submitted).digest();
+        if (!timingSafeEqual(configuredBootstrapDigest, submittedDigest)) {
+          return error(reply, 403, "Owner setup token is invalid");
+        }
+      }
+      const invite = count > 0 && typeof b.invite === "string"
+        ? db.prepare("SELECT * FROM invites WHERE token_hash=? AND used_at IS NULL AND expires_at>?")
+            .get(hashToken(b.invite), Date.now()) : null;
+      if (count > 0 && !invite) return error(reply, 403, "Registration requires an invitation");
+      const id = randomUUID(), created = now();
+      const digest = await argon2.hash(b.password, { type: argon2.argon2id });
+      try {
+        db.transaction(() => {
+          if (db.prepare("SELECT 1 FROM users WHERE username=?").get(b.username)) throw new Error("USERNAME_EXISTS");
+          if (count === 0) {
+            if (db.prepare("SELECT count(*) AS total FROM users").get().total !== 0) throw new Error("RACE");
+          } else if (db.prepare("UPDATE invites SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>?")
+            .run(Date.now(), hashToken(b.invite), Date.now()).changes !== 1) throw new Error("INVITE_USED");
+          db.prepare("INSERT INTO users VALUES(?,?,?,?,?)")
+            .run(id, b.username.trim(), b.displayName.trim(), digest, created);
+          if (count === 0) {
+            const workspaceId = randomUUID();
+            db.prepare("INSERT INTO workspaces VALUES(?,?,?,?)").run(workspaceId, "GoreeCloud Teams", id, created);
+            db.prepare("INSERT INTO memberships VALUES(?,?,?)").run(workspaceId, id, "owner");
+            for (const name of ["general", "projects", "random"]) {
+              db.prepare("INSERT INTO channels(id,workspace_id,name,is_private,created_at) VALUES(?,?,?,?,?)").run(randomUUID(), workspaceId, name, 0, created);
+            }
+          } else {
+            db.prepare("INSERT INTO memberships VALUES(?,?,?)").run(invite.workspace_id, id, invite.role);
+          }
+        })();
+      } catch (e) {
+        return error(reply, e.message === "USERNAME_EXISTS" ? 409 : 409, "Username or invitation no longer available");
+      }
+      const accessToken = issueSession(reply, id);
+      succeeded = true;
+      return reply.code(201).send({ user: getUser(id), accessToken });
+    } finally {
+      admission.finish(succeeded);
     }
-    const accessToken = issueSession(reply, id);
-    return reply.code(201).send({ user: getUser(id), accessToken });
   });
   app.post("/api/auth/login", async (req, reply) => {
     // trustProxy=false: throttling keys come from the socket rather than
